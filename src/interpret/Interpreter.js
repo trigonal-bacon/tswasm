@@ -78,14 +78,6 @@ var Program = /** @class */ (function () {
                 this.globals.push((0, ConstEval_1.default)(glob.expr));
             }
         }
-        if (repr.has_section(7)) {
-            //exports
-            //error fix
-            //0 = func
-            //1 = table
-            //2 = memory
-            //3 = global
-        }
         if (repr.has_section(9)) {
             //elems
             if (this.tables.length === 0)
@@ -110,9 +102,30 @@ var Program = /** @class */ (function () {
                 this.memory.buffer.set(data.data, offset);
             }
         }
+        if (repr.has_section(7)) {
+            //exports
+            for (var _h = 0, _j = repr.section7.content; _h < _j.length; _h++) {
+                var exp = _j[_h];
+                switch (exp.kind) {
+                    case 0:
+                        break;
+                    case 1:
+                        this.exports[exp.name] = this.tables[exp.index];
+                        break;
+                    case 2:
+                        this.exports[exp.name] = this.memory;
+                        break;
+                    case 3:
+                        this.exports[exp.name] = new Global_1.WASMExternalGlobal({});
+                        this.exports[exp.name]._value = this.globals[exp.index];
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
         if (repr.has_section(8)) {
             //start
-            //this.start = repr.section8.index;
             this.run(repr.section8.index, []);
         }
     }
@@ -158,12 +171,12 @@ var Program = /** @class */ (function () {
                 case 3: {
                     //global
                     var glob = imports[module_1][name_1];
-                    if (!(glob instanceof Global_1.WASMGlobalImport))
+                    if (!(glob instanceof Global_1.WASMExternalGlobal))
                         throw new Error("Invalid import ".concat(module_1, ".").concat(name_1, ": expected WebAssembly.Global"));
                     if (glob._value.type !== desc.type)
                         throw new Error("Imported global type mismatch");
                     ++importGlobalCount;
-                    this.globals.unshift(glob._value);
+                    this.globals.push(glob._value);
                     break;
                 }
                 default:
@@ -393,7 +406,7 @@ var Program = /** @class */ (function () {
                 }
             }
         }
-        return 0;
+        //throw new Error(`Unreachable`);
     };
     return Program;
 }());

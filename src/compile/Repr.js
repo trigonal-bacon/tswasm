@@ -35,6 +35,8 @@ var WASMRepr = /** @class */ (function () {
         this.globalTypes = [];
         this.importFunc = 0;
         this.importGlobal = 0;
+        this.tableCount = 0;
+        this.memoryCount = 0;
         this.section1 = new sections_1.WASMSection();
         this.section2 = new sections_1.WASMSection();
         this.section3 = new sections_1.WASMSection();
@@ -92,7 +94,36 @@ var WASMRepr = /** @class */ (function () {
             if (funcType.args.length !== 0 || funcType.ret !== types_1.WASMValueType.nil)
                 throw new Error("Start function must not take or return values");
         }
-        //check for existence of only one memory segment?
+        if (this.has_section(7)) {
+            for (var _i = 0, _a = this.section7.content; _i < _a.length; _i++) {
+                var exp = _a[_i];
+                switch (exp.kind) {
+                    case 0:
+                        if (exp.index >= this.funcTypes.length)
+                            throw new Error("Exported function ".concat(exp.index, " out of range"));
+                        break;
+                    case 1:
+                        if (exp.index >= this.tableCount)
+                            throw new Error("Exported table ".concat(exp.index, " out of range"));
+                        break;
+                    case 2:
+                        if (exp.index >= this.memoryCount)
+                            throw new Error("Exported memory ".concat(exp.index, " out of range"));
+                        break;
+                    case 3:
+                        if (exp.index >= this.globalTypes.length)
+                            throw new Error("Exported global ".concat(exp.index, " out of range"));
+                        if (this.globalTypes[exp.index].mutable === false)
+                            throw new Error("Exported global ".concat(exp.index, " immutable"));
+                        break;
+                    default:
+                        throw new Error("Shouldn't happen");
+                }
+            }
+        }
+        //error need to check for constexprs
+        if (this.memoryCount > 1)
+            throw new Error("".concat(this.memoryCount, " memory declarations present, only at most one allowed"));
     };
     WASMRepr.prototype.__validateCodeBlockRecursive = function (code, locals, block_types, result_type, func_return) {
         var type_stack = [];
@@ -143,6 +174,8 @@ var WASMRepr = /** @class */ (function () {
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_call_indirect: {
+                    if (this.tableCount === 0)
+                        throw new Error("No vtables to access");
                     var typeidx = args[0].u32;
                     if (typeidx >= this.section1.content.length)
                         throw new Error("Type index ".concat(typeidx, " out of bounds"));

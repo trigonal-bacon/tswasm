@@ -1,7 +1,7 @@
 import { WASMValue } from "../spec/Code";
 import { WASMValueType } from "../spec/types";
 
-export class WASMGlobalImport {
+export class WASMExternalGlobal {
     _value : WASMValue = new WASMValue();
     mutable : boolean = false;
     constructor(options : any) {

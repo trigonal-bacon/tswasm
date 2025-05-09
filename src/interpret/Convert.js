@@ -161,7 +161,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
     }
 }
 function convertToExecForm(repr) {
-    console.log("Begin conversion");
+    //console.log("Begin conversion");
     var writer = new Lexer_1.FixedLengthWriter();
     for (var i = 0; i < repr.section10.content.length; ++i)
         writer.write_u32(0);
@@ -182,6 +182,6 @@ function convertToExecForm(repr) {
             writer.write_u8(OpCode_1.WASMOPCode.op_return); //force a return statement
         }
     }
-    console.log("End conversion");
+    //console.log("End conversion");
     return writer.toBuffer();
 }

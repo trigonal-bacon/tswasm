@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WASMGlobalImport = void 0;
+exports.WASMExternalGlobal = void 0;
 var Code_1 = require("../spec/Code");
 var types_1 = require("../spec/types");
-var WASMGlobalImport = /** @class */ (function () {
-    function WASMGlobalImport(options) {
+var WASMExternalGlobal = /** @class */ (function () {
+    function WASMExternalGlobal(options) {
         this._value = new Code_1.WASMValue();
         this.mutable = false;
         if (typeof options.mutable === "boolean")
@@ -28,7 +28,7 @@ var WASMGlobalImport = /** @class */ (function () {
             }
         }
     }
-    Object.defineProperty(WASMGlobalImport.prototype, "type", {
+    Object.defineProperty(WASMExternalGlobal.prototype, "type", {
         get: function () {
             switch (this._value.type) {
                 case types_1.WASMValueType.i32: return "i32";
@@ -41,13 +41,13 @@ var WASMGlobalImport = /** @class */ (function () {
         enumerable: false,
         configurable: true
     });
-    Object.defineProperty(WASMGlobalImport.prototype, "value", {
+    Object.defineProperty(WASMExternalGlobal.prototype, "value", {
         get: function () {
             return this._value.numeric;
         },
         enumerable: false,
         configurable: true
     });
-    return WASMGlobalImport;
+    return WASMExternalGlobal;
 }());
-exports.WASMGlobalImport = WASMGlobalImport;
+exports.WASMExternalGlobal = WASMExternalGlobal;

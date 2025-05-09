@@ -47,6 +47,8 @@ export default class WASMRepr {
     globalTypes : Array<WASMGlobalType> = [];
     importFunc : number = 0;
     importGlobal : number = 0;
+    tableCount : number = 0;
+    memoryCount : number = 0;
     section1 : WASMSection<WASMFuncType> = new WASMSection();
     section2 : WASMSection<WASMSection2Content> = new WASMSection();
     section3 : WASMSection<WASMSection3Content> = new WASMSection();
@@ -107,7 +109,35 @@ export default class WASMRepr {
             if (funcType.args.length !== 0 || funcType.ret !== WASMValueType.nil)
                 throw new Error(`Start function must not take or return values`);
         }
-        //check for existence of only one memory segment?
+        if (this.has_section(7)) {
+            for (const exp of this.section7.content) {
+                switch (exp.kind) {
+                    case 0:
+                        if (exp.index >= this.funcTypes.length)
+                            throw new Error(`Exported function ${exp.index} out of range`);
+                        break;
+                    case 1:
+                        if (exp.index >= this.tableCount)
+                            throw new Error(`Exported table ${exp.index} out of range`);
+                        break;
+                    case 2:
+                        if (exp.index >= this.memoryCount)
+                            throw new Error(`Exported memory ${exp.index} out of range`);
+                        break;
+                    case 3:
+                        if (exp.index >= this.globalTypes.length)
+                            throw new Error(`Exported global ${exp.index} out of range`);
+                        if (this.globalTypes[exp.index].mutable === false)
+                            throw new Error(`Exported global ${exp.index} immutable`);
+                        break;
+                    default:
+                        throw new Error(`Shouldn't happen`);
+                }
+            }
+        }
+        //error need to check for constexprs
+        if (this.memoryCount > 1)
+            throw new Error(`${this.memoryCount} memory declarations present, only at most one allowed`);
     }
 
     __validateCodeBlockRecursive(
@@ -164,6 +194,8 @@ export default class WASMRepr {
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
+                    if (this.tableCount === 0)
+                        throw new Error(`No vtables to access`);
                     const typeidx = args[0].u32;
                     if (typeidx >= this.section1.content.length)
                         throw new Error(`Type index ${typeidx} out of bounds`);

@@ -136,7 +136,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
 }
 
 export function convertToExecForm(repr : WASMRepr) : Uint8Array {
-    console.log("Begin conversion");
+    //console.log("Begin conversion");
     const writer = new FixedLengthWriter();
     for (let i = 0; i < repr.section10.content.length; ++i)
         writer.write_u32(0);
@@ -154,6 +154,6 @@ export function convertToExecForm(repr : WASMRepr) : Uint8Array {
             writer.write_u8(WASMOPCode.op_return); //force a return statement
         }
     }
-    console.log("End conversion");
+    //console.log("End conversion");
     return writer.toBuffer();
 }

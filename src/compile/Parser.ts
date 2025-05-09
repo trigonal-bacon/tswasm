@@ -141,28 +141,32 @@ export default class WASMParser {
             const kind = content.kind = lexer.read_uint8();
             switch (kind) {
                 case WASMDeclType.func:
-                    ++repr.importFunc;
                     content.index = lexer.read_uint32();
                     repr.funcTypes.push(content.index); 
+                    ++repr.importFunc;
                     break;
                 case WASMDeclType.global: {
-                    ++repr.importGlobal;
                     const globType = new WASMGlobalType();
                     globType.type = readValueType(lexer);
                     globType.mutable = (lexer.read_uint8() !== 0);
                     content.type = globType.type;
                     repr.globalTypes.push(globType);
+                    ++repr.importGlobal;
                     break;
                 }
-                case WASMDeclType.table:
+                case WASMDeclType.table: {
                     content.type = lexer.read_uint8();
+                    content.limits = readLimit(lexer);
+                    ++repr.tableCount;
+                    break;
+                }
                 case WASMDeclType.mem: {
                     content.limits = readLimit(lexer);
+                    ++repr.memoryCount;
                     break;
                 }
                 default:
                     throw new Error(`Invalid import type`);
-                    break;
             }
             repr.section2.content.push(content);
         }
@@ -188,6 +192,7 @@ export default class WASMParser {
             content.refKind = kind;
             content.limit = readLimit(lexer);
         }
+        repr.tableCount += sectionLen;
     }
 
     parseSection5(repr : WASMRepr) : void {
@@ -197,6 +202,7 @@ export default class WASMParser {
             const content = readLimit(lexer);
             repr.section5.content.push(content);
         }
+        repr.memoryCount += sectionLen;
     }
 
     parseSection6(repr : WASMRepr) : void {

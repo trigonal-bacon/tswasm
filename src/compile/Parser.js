@@ -149,28 +149,32 @@ var WASMParser = /** @class */ (function () {
             var kind = content.kind = lexer.read_uint8();
             switch (kind) {
                 case types_1.WASMDeclType.func:
-                    ++repr.importFunc;
                     content.index = lexer.read_uint32();
                     repr.funcTypes.push(content.index);
+                    ++repr.importFunc;
                     break;
                 case types_1.WASMDeclType.global: {
-                    ++repr.importGlobal;
                     var globType = new types_1.WASMGlobalType();
                     globType.type = readValueType(lexer);
                     globType.mutable = (lexer.read_uint8() !== 0);
                     content.type = globType.type;
                     repr.globalTypes.push(globType);
+                    ++repr.importGlobal;
                     break;
                 }
-                case types_1.WASMDeclType.table:
+                case types_1.WASMDeclType.table: {
                     content.type = lexer.read_uint8();
+                    content.limits = readLimit(lexer);
+                    ++repr.tableCount;
+                    break;
+                }
                 case types_1.WASMDeclType.mem: {
                     content.limits = readLimit(lexer);
+                    ++repr.memoryCount;
                     break;
                 }
                 default:
                     throw new Error("Invalid import type");
-                    break;
             }
             repr.section2.content.push(content);
         }
@@ -194,6 +198,7 @@ var WASMParser = /** @class */ (function () {
             content.refKind = kind;
             content.limit = readLimit(lexer);
         }
+        repr.tableCount += sectionLen;
     };
     WASMParser.prototype.parseSection5 = function (repr) {
         var lexer = this.lexer;
@@ -202,6 +207,7 @@ var WASMParser = /** @class */ (function () {
             var content = readLimit(lexer);
             repr.section5.content.push(content);
         }
+        repr.memoryCount += sectionLen;
     };
     WASMParser.prototype.parseSection6 = function (repr) {
         var lexer = this.lexer;

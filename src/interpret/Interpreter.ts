@@ -3,7 +3,7 @@ import { WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
 import { WASMFuncType, WASMSection2Content, WASMSection4Content } from "../spec/sections";
 import { WASMValueType } from "../spec/types";
-import { WASMGlobalImport } from "../interface/Global";
+import { WASMExternalGlobal } from "../interface/Global";
 import WASMMemory from "../interface/Memory";
 import WASMTable from "../interface/Table";
 import WASMModule from "../compile/Module";
@@ -50,7 +50,7 @@ export class Program {
 
     funcCount : number = 0;
 
-    exports : object = {};
+    exports : Record<string, any> = {};
 
     constructor(repr : WASMModule, imports : any) {
         this.code = convertToExecForm(repr);
@@ -84,17 +84,8 @@ export class Program {
         }
         if (repr.has_section(6)) {
             //globals
-            for (const glob of repr.section6.content) {
+            for (const glob of repr.section6.content) 
                 this.globals.push(evalConstExpr(glob.expr));
-            }
-        }
-        if (repr.has_section(7)) {
-            //exports
-            //error fix
-            //0 = func
-            //1 = table
-            //2 = memory
-            //3 = global
         }
         if (repr.has_section(9)) {
             //elems
@@ -118,10 +109,29 @@ export class Program {
                 this.memory.buffer.set(data.data, offset);
             }
         }
-
+        if (repr.has_section(7)) {
+            //exports
+            for (const exp of repr.section7.content) {
+                switch (exp.kind) {
+                    case 0:
+                        break;
+                    case 1:
+                        this.exports[exp.name] = this.tables[exp.index];
+                        break;
+                    case 2: 
+                        this.exports[exp.name] = this.memory;
+                        break;
+                    case 3:
+                        this.exports[exp.name] = new WASMExternalGlobal({});
+                        this.exports[exp.name]._value = this.globals[exp.index];
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
         if (repr.has_section(8)) {
             //start
-            //this.start = repr.section8.index;
             this.run(repr.section8.index, []);
         }
     }
@@ -168,12 +178,12 @@ export class Program {
                 case 3: {
                     //global
                     const glob = imports[module][name];
-                    if (!(glob instanceof WASMGlobalImport)) 
+                    if (!(glob instanceof WASMExternalGlobal)) 
                         throw new Error(`Invalid import ${module}.${name}: expected WebAssembly.Global`);
                     if (glob._value.type !== desc.type)
                         throw new Error("Imported global type mismatch");
                     ++importGlobalCount;
-                    this.globals.unshift(glob._value);
+                    this.globals.push(glob._value);
                     break;
                 }
                 default:
