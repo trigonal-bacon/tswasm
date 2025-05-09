@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WASMSection12Content = exports.WASMSection11Content = exports.WASMSection10Content = exports.WASMLocalEnum = exports.WASMSection8Content = exports.WASMSection7Content = exports.WASMSection4Content = exports.WASMSection3Content = exports.WASMSection2Content = exports.WASMLimit = exports.WASMFuncType = exports.WASMSection = void 0;
-var Code_1 = require("./Code");
+exports.WASMSection12Content = exports.WASMSection11Content = exports.WASMSection10Content = exports.WASMSection9Content = exports.WASMLocalEnum = exports.WASMSection8Content = exports.WASMSection7Content = exports.WASMSection6Content = exports.WASMSection4Content = exports.WASMSection3Content = exports.WASMSection2Content = exports.WASMLimit = exports.WASMFuncType = exports.WASMSection = void 0;
 var types_1 = require("./types");
 var WASMSection = /** @class */ (function () {
     function WASMSection() {
@@ -35,6 +34,7 @@ var WASMSection2Content = /** @class */ (function () {
         this.kind = types_1.WASMDeclType.func;
         this.index = 0;
         this.type = types_1.WASMValueType.nil;
+        this.limits = new WASMLimit();
     }
     return WASMSection2Content;
 }());
@@ -54,6 +54,14 @@ var WASMSection4Content = /** @class */ (function () {
     return WASMSection4Content;
 }());
 exports.WASMSection4Content = WASMSection4Content;
+var WASMSection6Content = /** @class */ (function () {
+    function WASMSection6Content() {
+        this.type = new types_1.WASMGlobalType();
+        this.expr = [];
+    }
+    return WASMSection6Content;
+}());
+exports.WASMSection6Content = WASMSection6Content;
 var WASMSection7Content = /** @class */ (function () {
     function WASMSection7Content() {
         this.name = "";
@@ -79,12 +87,19 @@ var WASMLocalEnum = /** @class */ (function () {
     return WASMLocalEnum;
 }());
 exports.WASMLocalEnum = WASMLocalEnum;
+var WASMSection9Content = /** @class */ (function () {
+    function WASMSection9Content() {
+        this.kind = 0;
+        this.offset = [];
+        this.funcrefs = [];
+    }
+    return WASMSection9Content;
+}());
+exports.WASMSection9Content = WASMSection9Content;
 var WASMSection10Content = /** @class */ (function () {
     function WASMSection10Content() {
         this.byteLen = 0;
-        this.funcSig = 0;
         this.locals = [];
-        this.localTypes = [];
         this.code = [];
     }
     return WASMSection10Content;
@@ -94,7 +109,7 @@ var WASMSection11Content = /** @class */ (function () {
     function WASMSection11Content() {
         this.kind = 0;
         this.memidx = 0;
-        this.offset = new Code_1.InstrNode();
+        this.offset = [];
         this.data = new Uint8Array(0);
     }
     return WASMSection11Content;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Reader = void 0;
+exports.FixedLengthReader = exports.FixedLengthWriter = exports.Reader = void 0;
 var CONVERSION_BUFFER = new ArrayBuffer(8);
 var CONVERSION_UINT8 = new Uint8Array(CONVERSION_BUFFER);
 var CONVERSION_UINT32 = new Uint32Array(CONVERSION_BUFFER);
@@ -110,3 +110,84 @@ var Reader = /** @class */ (function () {
     return Reader;
 }());
 exports.Reader = Reader;
+var FixedLengthWriter = /** @class */ (function () {
+    function FixedLengthWriter() {
+        this.buf = [];
+        this.at = 0;
+    }
+    FixedLengthWriter.prototype.toBuffer = function () {
+        return new Uint8Array(this.buf);
+    };
+    FixedLengthWriter.prototype.write_u8 = function (u8) {
+        CONVERSION_UINT8[0] = u8;
+        this.buf[this.at++] = CONVERSION_UINT8[0];
+    };
+    FixedLengthWriter.prototype.retroactive_write_u32 = function (u32, ptr) {
+        CONVERSION_UINT32[0] = u32;
+        for (var i = 0; i < 4; ++i)
+            this.buf[ptr + i] = CONVERSION_UINT8[i];
+    };
+    FixedLengthWriter.prototype.write_u32 = function (u32) {
+        CONVERSION_UINT32[0] = u32;
+        for (var i = 0; i < 4; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    };
+    FixedLengthWriter.prototype.write_i32 = function (i32) {
+        CONVERSION_INT32[0] = i32;
+        for (var i = 0; i < 4; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    };
+    FixedLengthWriter.prototype.write_f32 = function (f32) {
+        CONVERSION_FLOAT32[0] = f32;
+        for (var i = 0; i < 4; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    };
+    FixedLengthWriter.prototype.write_i64 = function (i64) {
+        CONVERSION_INT64[0] = i64;
+        for (var i = 0; i < 8; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    };
+    FixedLengthWriter.prototype.write_f64 = function (f64) {
+        CONVERSION_FLOAT64[0] = f64;
+        for (var i = 0; i < 8; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    };
+    return FixedLengthWriter;
+}());
+exports.FixedLengthWriter = FixedLengthWriter;
+var FixedLengthReader = /** @class */ (function () {
+    function FixedLengthReader(buf) {
+        this.at = 0;
+        this.buf = buf;
+    }
+    FixedLengthReader.prototype.read_u8 = function () {
+        return this.buf[this.at++];
+    };
+    FixedLengthReader.prototype.read_u32 = function () {
+        for (var i = 0; i < 4; ++i)
+            CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_UINT32[0];
+    };
+    FixedLengthReader.prototype.read_i32 = function () {
+        for (var i = 0; i < 4; ++i)
+            CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_INT32[0];
+    };
+    FixedLengthReader.prototype.read_f32 = function () {
+        for (var i = 0; i < 4; ++i)
+            CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_FLOAT32[0];
+    };
+    FixedLengthReader.prototype.read_i64 = function () {
+        for (var i = 0; i < 8; ++i)
+            CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_INT64[0];
+    };
+    FixedLengthReader.prototype.read_f64 = function () {
+        for (var i = 0; i < 8; ++i)
+            CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_FLOAT64[0];
+    };
+    return FixedLengthReader;
+}());
+exports.FixedLengthReader = FixedLengthReader;

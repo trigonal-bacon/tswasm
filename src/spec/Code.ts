@@ -13,6 +13,35 @@ export class WASMValue {
     type : WASMValueType = WASMValueType.i32;
     value : number = 0;
     bigval : bigint = BigInt(0);
+    set(v : WASMValue) {
+        if (this.type !== v.type)
+            throw new Error(`Internal type mismatch: expected ${this.type}, got ${v.type}`);
+        this.value = v.value;
+        this.bigval = v.bigval;
+    }
+    toU32() : number {
+        return this.value;
+    }
+    toI32() : number {
+        return this.value;
+    }
+    toF32() : number {
+        return this.value;
+    }
+    toI64() : bigint {
+        return this.bigval;
+    }
+    toF64() : number {
+        return this.value;
+    }
+    toNumeric() : number | bigint {
+        switch (this.type) {
+            case WASMValueType.i64:
+                return this.bigval;
+            default:
+                return this.value;
+        }
+    }
     static createU32Literal(u32 : number) : WASMValue {
         const ret = new WASMValue();
         CONVERSION_UINT32[0] = u32;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WASMRefType = exports.WASMDeclType = exports.WASMValueType = void 0;
+exports.WASMGlobalType = exports.WASMRefType = exports.WASMDeclType = exports.WASMValueType = void 0;
 var WASMValueType;
 (function (WASMValueType) {
     WASMValueType[WASMValueType["nil"] = 64] = "nil";
@@ -22,3 +22,11 @@ var WASMRefType;
     WASMRefType[WASMRefType["funcref"] = 112] = "funcref";
     WASMRefType[WASMRefType["externref"] = 111] = "externref";
 })(WASMRefType || (exports.WASMRefType = WASMRefType = {}));
+var WASMGlobalType = /** @class */ (function () {
+    function WASMGlobalType() {
+        this.mutable = false;
+        this.type = WASMValueType.i32;
+    }
+    return WASMGlobalType;
+}());
+exports.WASMGlobalType = WASMGlobalType;

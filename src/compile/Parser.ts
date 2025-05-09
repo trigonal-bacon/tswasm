@@ -2,75 +2,68 @@ import { Reader } from "../helpers/Lexer";
 import { InstrNode, WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
 import { 
-    WASMSection, WASMFuncType,
-    WASMLimit, WASMLocalEnum,
+    WASMFuncType,
+    WASMLimit,
+    WASMLocalEnum,
     WASMSection2Content,
     WASMSection3Content,
     WASMSection4Content,
     WASMSection7Content,
-    WASMSection8Content,
     WASMSection10Content,
     WASMSection11Content,
-    WASMSection12Content, 
+    WASMSection9Content,
+    WASMSection6Content,
 } from "../spec/sections";
-import { WASMValueType, WASMDeclType } from "../spec/types";
+import { WASMValueType, WASMDeclType, WASMGlobalType } from "../spec/types";
+import WASMRepr from "./Repr";
 
-export default class WASMRepr {
+export default class WASMParser {
     bin : Uint8Array;
     lexer : Reader;
-    funcTypes : Array<Number> = [];
-    globalTypes : Array<WASMValueType> = [];
-    importFunc : number = 0;
-    importGlobal : number = 0;
-    section1 : WASMSection<WASMFuncType> = new WASMSection();
-    section2 : WASMSection<WASMSection2Content> = new WASMSection();
-    section3 : WASMSection<WASMSection3Content> = new WASMSection();
-    section4 : WASMSection<WASMSection4Content> = new WASMSection();
-    section5 : WASMSection<WASMLimit> = new WASMSection();
-    section7 : WASMSection<WASMSection7Content> = new WASMSection();
-    section8 : WASMSection8Content = new WASMSection8Content();
-    section10 : WASMSection<WASMSection10Content> = new WASMSection();
-    section11 : WASMSection<WASMSection11Content> = new WASMSection();
-    section12 : WASMSection12Content = new WASMSection12Content();
-    sections : Array<boolean> = new Array(13).fill(false);
     constructor(bin : Uint8Array) {
         this.bin = bin;
         this.lexer = new Reader(bin);
-        this.parse();
     }
-    parse() : void {
+    parse() : WASMRepr {
+        const repr = new WASMRepr();
         const lexer = this.lexer;
         lexer.read_float64(); //magic header
         while (lexer.has()) {
             const section = lexer.read_uint8();
             console.log("Parsing section " + section);
             if (section > 12) break; //error
-            if (this.sections[section]) {
-                console.log("Section already exists"); //error
+            if (repr.sections[section]) {
+                throw new Error(`Section ${section} already exists`); //error
             }
-            this.sections[section] = true;
+            repr.sections[section] = true;
             switch (section) {
-                case 1: this.parseSection1(); break;
-                case 2: this.parseSection2(); break;
-                case 3: this.parseSection3(); break;
-                case 4: this.parseSection4(); break;
-                case 5: this.parseSection5(); break;
-                case 6: this.parseSection6(); break;
-                case 7: this.parseSection7(); break;
-                case 8: this.parseSection8(); break;
-                case 9: this.parseSection9(); break;
-                case 10: this.parseSection10(); break;
-                case 11: this.parseSection11(); break;
-                case 12: this.parseSection12(); break;
+                case 0: this.parseSection0(repr); break;
+                case 1: this.parseSection1(repr); break;
+                case 2: this.parseSection2(repr); break;
+                case 3: this.parseSection3(repr); break;
+                case 4: this.parseSection4(repr); break;
+                case 5: this.parseSection5(repr); break;
+                case 6: this.parseSection6(repr); break;
+                case 7: this.parseSection7(repr); break;
+                case 8: this.parseSection8(repr); break;
+                case 9: this.parseSection9(repr); break;
+                case 10: this.parseSection10(repr); break;
+                case 11: this.parseSection11(repr); break;
+                case 12: this.parseSection12(repr); break;
                 default: break;
             }
         }
         console.log("Parse finished");
+        return repr;
     }
 
-    parseSection1() : void {
+    parseSection0(repr : WASMRepr) : void {
+
+    }
+
+    parseSection1(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section1.byteLen = lexer.read_uint32();
+        repr.section1.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMFuncType();
@@ -89,16 +82,15 @@ export default class WASMRepr {
                 content.ret = valtype;
             }
             else {
-                //console.log("Error more than 1 retval");
-                //error more than 1 retval
+                throw new Error("Multireturn currently not supported");
             }
-            this.section1.content.push(content);
+            repr.section1.content.push(content);
         }
     }
 
-    parseSection2() : void {
+    parseSection2(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section2.byteLen = lexer.read_uint32();
+        repr.section2.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMSection2Content();
@@ -107,42 +99,58 @@ export default class WASMRepr {
             const kind = content.kind = lexer.read_uint8();
             switch (kind) {
                 case WASMDeclType.func:
-                    ++this.importFunc;
+                    ++repr.importFunc;
                     content.index = lexer.read_uint32();
                     //error on bad index
-                    this.funcTypes.push(content.index); //index to the functypes
+                    repr.funcTypes.push(content.index); //index to the functypes
                     break;
-                case WASMDeclType.global:
-                    ++this.importGlobal;
+                case WASMDeclType.global: {
+                    ++repr.importGlobal;
+                    const globType = new WASMGlobalType();
+                    globType.type = lexer.read_uint8();
+                    //error validate
+                    globType.mutable = (lexer.read_uint8() !== 0);
+                    content.type = globType.type;
+                    repr.globalTypes.push(globType);
+                    break;
+                }
                 case WASMDeclType.table:
+                    content.type = lexer.read_uint8();
                 case WASMDeclType.mem: {
                     //error;
-                    content.type = lexer.read_uint8();
-                    this.globalTypes.push(content.type);
+                    const hasMax = lexer.read_uint8();
+                    content.limits.hasMax = hasMax !== 0;
+                    if (hasMax) {
+                        content.limits.min = lexer.read_uint32();
+                        content.limits.max = lexer.read_uint32();
+                    }
+                    else {
+                        content.limits.min = content.limits.max = lexer.read_uint32();
+                    }
                     break;
                 }
                 default:
                     break; //error
             }
-            this.section2.content.push(content);
+            repr.section2.content.push(content);
         }
     }
 
-    parseSection3() : void {
+    parseSection3(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section3.byteLen = lexer.read_uint32();
+        repr.section3.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMSection3Content();
             content.index = lexer.read_uint32();
-            this.funcTypes.push(content.index);
-            this.section3.content.push(content);
+            repr.funcTypes.push(content.index);
+            repr.section3.content.push(content);
         }
     }
 
-    parseSection4() : void {
+    parseSection4(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section4.byteLen = lexer.read_uint32();
+        repr.section4.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMSection4Content();
@@ -161,9 +169,9 @@ export default class WASMRepr {
         }
     }
 
-    parseSection5() : void {
+    parseSection5(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section5.byteLen = lexer.read_uint32();
+        repr.section5.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMLimit();
@@ -176,17 +184,28 @@ export default class WASMRepr {
             else {
                 content.min = content.max = lexer.read_uint32();
             }
+            repr.section5.content.push(content);
         }
     }
 
-    parseSection6() : void {
-        const len = this.lexer.read_uint32();
-        this.lexer.at += len; //error skip
+    parseSection6(repr : WASMRepr) : void {
+        const lexer = this.lexer;
+        repr.section6.byteLen = lexer.read_uint32();
+        const sectionLen = lexer.read_uint32();
+        for (let i = 0; i < sectionLen; ++i) {
+            const content = new WASMSection6Content();
+            const type = lexer.read_uint8();
+            content.type.mutable = (lexer.read_uint8() !== 0);
+            content.type.type = type;
+            repr.globalTypes.push(content.type);
+            content.expr = this.parseCodeBlock();
+            repr.section6.content.push(content);
+        }
     }
 
-    parseSection7() : void {
+    parseSection7(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section7.byteLen = lexer.read_uint32();
+        repr.section7.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMSection7Content();
@@ -195,24 +214,34 @@ export default class WASMRepr {
             //error need to validate
             content.kind = kind;
             content.index = lexer.read_uint32();
-            this.section7.content.push(content);
+            repr.section7.content.push(content);
         }
     }
 
-    parseSection8() : void {
+    parseSection8(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section8.byteLen = lexer.read_uint32();
-        this.section8.index = lexer.read_uint32();
+        repr.section8.byteLen = lexer.read_uint32();
+        repr.section8.index = lexer.read_uint32();
     }
 
-    parseSection9() : void {
-        const len = this.lexer.read_uint32();
-        this.lexer.at += len; //error skip
+    parseSection9(repr : WASMRepr) : void {
+        const lexer = this.lexer;
+        repr.section9.byteLen = lexer.read_uint32();
+        const sectionLen = lexer.read_uint32();
+        for (let i = 0; i < sectionLen; ++i) {
+            const content = new WASMSection9Content();
+            content.kind = lexer.read_uint32();
+            content.offset = this.parseCodeBlock();
+            const numRefs = lexer.read_uint32();
+            for (let j = 0; j < numRefs; ++j)
+                content.funcrefs.push(lexer.read_uint32());
+            repr.section9.content.push(content);
+        }
     }
 
-    parseSection10() : void {
+    parseSection10(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section10.byteLen = lexer.read_uint32();
+        repr.section10.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const section = new WASMSection10Content();
@@ -228,13 +257,13 @@ export default class WASMRepr {
                 section.locals.push(en);
             }
             section.code = this.parseCodeBlock();
-            this.section10.content.push(section);
+            repr.section10.content.push(section);
         } 
     }
 
-    parseSection11() : void {
+    parseSection11(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section11.byteLen = lexer.read_uint32();
+        repr.section11.byteLen = lexer.read_uint32();
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
             const content = new WASMSection11Content();
@@ -244,11 +273,7 @@ export default class WASMRepr {
                 case 2:
                     content.memidx = lexer.read_uint32();
                 case 0: {
-                    const instrArr = this.parseCodeBlock();
-                    if (instrArr.length !== 0) {
-                        //error;
-                    }
-                    content.offset = instrArr[0];
+                    content.offset = this.parseCodeBlock();
                 }
                 case 1:
                     break;
@@ -257,14 +282,14 @@ export default class WASMRepr {
             }
             const len = lexer.read_uint32();
             content.data = this.bin.slice(lexer.at, lexer.at += len);
-            this.section11.content.push(content);
+            repr.section11.content.push(content);
         }
     }
 
-    parseSection12() : void {
+    parseSection12(repr : WASMRepr) : void {
         const lexer = this.lexer;
-        this.section12.byteLen = lexer.read_uint32();
-        this.section12.dataCount = lexer.read_uint32();
+        repr.section12.byteLen = lexer.read_uint32();
+        repr.section12.dataCount = lexer.read_uint32();
     }
 
     parseCodeBlock() : Array<InstrNode> {
@@ -275,6 +300,7 @@ export default class WASMRepr {
             const instr_op = lexer.read_uint8();
             if (instr_op === WASMOPCode.op_end || instr_op === WASMOPCode.op_else) break;
             const currInstr = new InstrNode();
+            instrArray.push(currInstr);
             currInstr.instr = instr_op;
             switch (instr_op) {
                 case WASMOPCode.op_block:

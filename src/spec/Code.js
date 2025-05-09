@@ -16,6 +16,35 @@ var WASMValue = /** @class */ (function () {
         this.value = 0;
         this.bigval = BigInt(0);
     }
+    WASMValue.prototype.set = function (v) {
+        if (this.type !== v.type)
+            throw new Error("Internal type mismatch: expected ".concat(this.type, ", got ").concat(v.type));
+        this.value = v.value;
+        this.bigval = v.bigval;
+    };
+    WASMValue.prototype.toU32 = function () {
+        return this.value;
+    };
+    WASMValue.prototype.toI32 = function () {
+        return this.value;
+    };
+    WASMValue.prototype.toF32 = function () {
+        return this.value;
+    };
+    WASMValue.prototype.toI64 = function () {
+        return this.bigval;
+    };
+    WASMValue.prototype.toF64 = function () {
+        return this.value;
+    };
+    WASMValue.prototype.toNumeric = function () {
+        switch (this.type) {
+            case types_1.WASMValueType.i64:
+                return this.bigval;
+            default:
+                return this.value;
+        }
+    };
     WASMValue.createU32Literal = function (u32) {
         var ret = new WASMValue();
         CONVERSION_UINT32[0] = u32;

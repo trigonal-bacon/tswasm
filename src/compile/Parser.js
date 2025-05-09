@@ -5,84 +5,71 @@ var Code_1 = require("../spec/Code");
 var OpCode_1 = require("../spec/OpCode");
 var sections_1 = require("../spec/sections");
 var types_1 = require("../spec/types");
-var WASMRepr = /** @class */ (function () {
-    function WASMRepr(bin) {
-        this.funcTypes = [];
-        this.globalTypes = [];
-        this.importFunc = 0;
-        this.importGlobal = 0;
-        this.section1 = new sections_1.WASMSection();
-        this.section2 = new sections_1.WASMSection();
-        this.section3 = new sections_1.WASMSection();
-        this.section4 = new sections_1.WASMSection();
-        this.section5 = new sections_1.WASMSection();
-        this.section7 = new sections_1.WASMSection();
-        this.section8 = new sections_1.WASMSection8Content();
-        this.section10 = new sections_1.WASMSection();
-        this.section11 = new sections_1.WASMSection();
-        this.section12 = new sections_1.WASMSection12Content();
-        this.sections = new Array(13).fill(false);
+var Repr_1 = require("./Repr");
+var WASMParser = /** @class */ (function () {
+    function WASMParser(bin) {
         this.bin = bin;
         this.lexer = new Lexer_1.Reader(bin);
-        this.parse();
     }
-    WASMRepr.prototype.parse = function () {
+    WASMParser.prototype.parse = function () {
+        var repr = new Repr_1.default();
         var lexer = this.lexer;
         lexer.read_float64(); //magic header
         while (lexer.has()) {
             var section = lexer.read_uint8();
             console.log("Parsing section " + section);
-            if (section > 12)
+            if (section > 12 || section === 0)
                 break; //error
-            if (this.sections[section]) {
+            if (repr.sections[section]) {
                 console.log("Section already exists"); //error
             }
-            this.sections[section] = true;
+            repr.sections[section] = true;
             switch (section) {
                 case 1:
-                    this.parseSection1();
+                    this.parseSection1(repr);
                     break;
                 case 2:
-                    this.parseSection2();
+                    this.parseSection2(repr);
                     break;
                 case 3:
-                    this.parseSection3();
+                    this.parseSection3(repr);
                     break;
                 case 4:
-                    this.parseSection4();
+                    this.parseSection4(repr);
                     break;
                 case 5:
-                    this.parseSection5();
+                    this.parseSection5(repr);
                     break;
                 case 6:
-                    this.parseSection6();
+                    this.parseSection6(repr);
                     break;
                 case 7:
-                    this.parseSection7();
+                    this.parseSection7(repr);
                     break;
                 case 8:
-                    this.parseSection8();
+                    this.parseSection8(repr);
                     break;
                 case 9:
-                    this.parseSection9();
+                    this.parseSection9(repr);
                     break;
                 case 10:
-                    this.parseSection10();
+                    this.parseSection10(repr);
                     break;
                 case 11:
-                    this.parseSection11();
+                    this.parseSection11(repr);
                     break;
                 case 12:
-                    this.parseSection12();
+                    this.parseSection12(repr);
                     break;
                 default: break;
             }
         }
         console.log("Parse finished");
+        return repr;
     };
-    WASMRepr.prototype.parseSection1 = function () {
+    WASMParser.prototype.parseSection1 = function (repr) {
         var lexer = this.lexer;
-        this.section1.byteLen = lexer.read_uint32();
+        repr.section1.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMFuncType();
@@ -103,15 +90,14 @@ var WASMRepr = /** @class */ (function () {
                 content.ret = valtype;
             }
             else {
-                //console.log("Error more than 1 retval");
-                //error more than 1 retval
+                throw new Error("Multireturn currently not supported");
             }
-            this.section1.content.push(content);
+            repr.section1.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection2 = function () {
+    WASMParser.prototype.parseSection2 = function (repr) {
         var lexer = this.lexer;
-        this.section2.byteLen = lexer.read_uint32();
+        repr.section2.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection2Content();
@@ -120,40 +106,56 @@ var WASMRepr = /** @class */ (function () {
             var kind = content.kind = lexer.read_uint8();
             switch (kind) {
                 case types_1.WASMDeclType.func:
-                    ++this.importFunc;
+                    ++repr.importFunc;
                     content.index = lexer.read_uint32();
                     //error on bad index
-                    this.funcTypes.push(content.index); //index to the functypes
+                    repr.funcTypes.push(content.index); //index to the functypes
                     break;
-                case types_1.WASMDeclType.global:
-                    ++this.importGlobal;
+                case types_1.WASMDeclType.global: {
+                    ++repr.importGlobal;
+                    var globType = new types_1.WASMGlobalType();
+                    globType.type = lexer.read_uint8();
+                    //error validate
+                    globType.mutable = (lexer.read_uint8() !== 0);
+                    content.type = globType.type;
+                    repr.globalTypes.push(globType);
+                    break;
+                }
                 case types_1.WASMDeclType.table:
+                    content.type = lexer.read_uint8();
                 case types_1.WASMDeclType.mem: {
                     //error;
-                    content.type = lexer.read_uint8();
-                    this.globalTypes.push(content.type);
+                    var hasMax = lexer.read_uint8();
+                    content.limits.hasMax = hasMax !== 0;
+                    if (hasMax) {
+                        content.limits.min = lexer.read_uint32();
+                        content.limits.max = lexer.read_uint32();
+                    }
+                    else {
+                        content.limits.min = content.limits.max = lexer.read_uint32();
+                    }
                     break;
                 }
                 default:
                     break; //error
             }
-            this.section2.content.push(content);
+            repr.section2.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection3 = function () {
+    WASMParser.prototype.parseSection3 = function (repr) {
         var lexer = this.lexer;
-        this.section3.byteLen = lexer.read_uint32();
+        repr.section3.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection3Content();
             content.index = lexer.read_uint32();
-            this.funcTypes.push(content.index);
-            this.section3.content.push(content);
+            repr.funcTypes.push(content.index);
+            repr.section3.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection4 = function () {
+    WASMParser.prototype.parseSection4 = function (repr) {
         var lexer = this.lexer;
-        this.section4.byteLen = lexer.read_uint32();
+        repr.section4.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection4Content();
@@ -171,9 +173,9 @@ var WASMRepr = /** @class */ (function () {
             }
         }
     };
-    WASMRepr.prototype.parseSection5 = function () {
+    WASMParser.prototype.parseSection5 = function (repr) {
         var lexer = this.lexer;
-        this.section5.byteLen = lexer.read_uint32();
+        repr.section5.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMLimit();
@@ -186,15 +188,26 @@ var WASMRepr = /** @class */ (function () {
             else {
                 content.min = content.max = lexer.read_uint32();
             }
+            repr.section5.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection6 = function () {
-        var len = this.lexer.read_uint32();
-        this.lexer.at += len; //error skip
-    };
-    WASMRepr.prototype.parseSection7 = function () {
+    WASMParser.prototype.parseSection6 = function (repr) {
         var lexer = this.lexer;
-        this.section7.byteLen = lexer.read_uint32();
+        repr.section6.byteLen = lexer.read_uint32();
+        var sectionLen = lexer.read_uint32();
+        for (var i = 0; i < sectionLen; ++i) {
+            var content = new sections_1.WASMSection6Content();
+            var type = lexer.read_uint8();
+            content.type.mutable = (lexer.read_uint8() !== 0);
+            content.type.type = type;
+            repr.globalTypes.push(content.type);
+            content.expr = this.parseCodeBlock();
+            repr.section6.content.push(content);
+        }
+    };
+    WASMParser.prototype.parseSection7 = function (repr) {
+        var lexer = this.lexer;
+        repr.section7.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection7Content();
@@ -203,21 +216,31 @@ var WASMRepr = /** @class */ (function () {
             //error need to validate
             content.kind = kind;
             content.index = lexer.read_uint32();
-            this.section7.content.push(content);
+            repr.section7.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection8 = function () {
+    WASMParser.prototype.parseSection8 = function (repr) {
         var lexer = this.lexer;
-        this.section8.byteLen = lexer.read_uint32();
-        this.section8.index = lexer.read_uint32();
+        repr.section8.byteLen = lexer.read_uint32();
+        repr.section8.index = lexer.read_uint32();
     };
-    WASMRepr.prototype.parseSection9 = function () {
-        var len = this.lexer.read_uint32();
-        this.lexer.at += len; //error skip
-    };
-    WASMRepr.prototype.parseSection10 = function () {
+    WASMParser.prototype.parseSection9 = function (repr) {
         var lexer = this.lexer;
-        this.section10.byteLen = lexer.read_uint32();
+        repr.section9.byteLen = lexer.read_uint32();
+        var sectionLen = lexer.read_uint32();
+        for (var i = 0; i < sectionLen; ++i) {
+            var content = new sections_1.WASMSection9Content();
+            content.kind = lexer.read_uint32();
+            content.offset = this.parseCodeBlock();
+            var numRefs = lexer.read_uint32();
+            for (var j = 0; j < numRefs; ++j)
+                content.funcrefs.push(lexer.read_uint32());
+            repr.section9.content.push(content);
+        }
+    };
+    WASMParser.prototype.parseSection10 = function (repr) {
+        var lexer = this.lexer;
+        repr.section10.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var section = new sections_1.WASMSection10Content();
@@ -233,12 +256,12 @@ var WASMRepr = /** @class */ (function () {
                 section.locals.push(en);
             }
             section.code = this.parseCodeBlock();
-            this.section10.content.push(section);
+            repr.section10.content.push(section);
         }
     };
-    WASMRepr.prototype.parseSection11 = function () {
+    WASMParser.prototype.parseSection11 = function (repr) {
         var lexer = this.lexer;
-        this.section11.byteLen = lexer.read_uint32();
+        repr.section11.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection11Content();
@@ -248,11 +271,7 @@ var WASMRepr = /** @class */ (function () {
                 case 2:
                     content.memidx = lexer.read_uint32();
                 case 0: {
-                    var instrArr = this.parseCodeBlock();
-                    if (instrArr.length !== 0) {
-                        //error;
-                    }
-                    content.offset = instrArr[0];
+                    content.offset = this.parseCodeBlock();
                 }
                 case 1:
                     break;
@@ -261,15 +280,15 @@ var WASMRepr = /** @class */ (function () {
             }
             var len = lexer.read_uint32();
             content.data = this.bin.slice(lexer.at, lexer.at += len);
-            this.section11.content.push(content);
+            repr.section11.content.push(content);
         }
     };
-    WASMRepr.prototype.parseSection12 = function () {
+    WASMParser.prototype.parseSection12 = function (repr) {
         var lexer = this.lexer;
-        this.section12.byteLen = lexer.read_uint32();
-        this.section12.dataCount = lexer.read_uint32();
+        repr.section12.byteLen = lexer.read_uint32();
+        repr.section12.dataCount = lexer.read_uint32();
     };
-    WASMRepr.prototype.parseCodeBlock = function () {
+    WASMParser.prototype.parseCodeBlock = function () {
         //console.log(this.recursionDepth, this.lexer.at);
         var lexer = this.lexer;
         var instrArray = [];
@@ -278,6 +297,7 @@ var WASMRepr = /** @class */ (function () {
             if (instr_op === OpCode_1.WASMOPCode.op_end || instr_op === OpCode_1.WASMOPCode.op_else)
                 break;
             var currInstr = new Code_1.InstrNode();
+            instrArray.push(currInstr);
             currInstr.instr = instr_op;
             switch (instr_op) {
                 case OpCode_1.WASMOPCode.op_block:
@@ -373,6 +393,6 @@ var WASMRepr = /** @class */ (function () {
         }
         return instrArray;
     };
-    return WASMRepr;
+    return WASMParser;
 }());
-exports.default = WASMRepr;
+exports.default = WASMParser;

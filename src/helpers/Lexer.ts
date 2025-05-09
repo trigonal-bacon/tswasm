@@ -109,3 +109,83 @@ export class Reader {
         return buf;
     }
 }
+
+export class FixedLengthWriter {
+    buf : Array<number> = [];
+    at : number = 0;
+
+    toBuffer() : Uint8Array {
+        return new Uint8Array(this.buf);
+    }
+
+    write_u8(u8 : number) : void {
+        CONVERSION_UINT8[0] = u8;
+        this.buf[this.at++] = CONVERSION_UINT8[0];
+    }
+
+    retroactive_write_u32(u32 : number, ptr : number) {
+        CONVERSION_UINT32[0] = u32;
+        for (let i = 0; i < 4; ++i) this.buf[ptr + i] = CONVERSION_UINT8[i];
+    }
+    write_u32(u32 : number) : void {
+        CONVERSION_UINT32[0] = u32;
+        for (let i = 0; i < 4; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+
+    write_i32(i32 : number) : void {
+        CONVERSION_INT32[0] = i32;
+        for (let i = 0; i < 4; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+
+    write_f32(f32 : number) : void {
+        CONVERSION_FLOAT32[0] = f32;
+        for (let i = 0; i < 4; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+
+    write_i64(i64 : bigint) : void {
+        CONVERSION_INT64[0] = i64;
+        for (let i = 0; i < 8; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+
+    write_f64(f64 : number) : void {
+        CONVERSION_FLOAT64[0] = f64;
+        for (let i = 0; i < 8; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+}
+
+export class FixedLengthReader {
+    at : number = 0;
+    buf : Uint8Array;
+    constructor(buf : Uint8Array) {
+        this.buf = buf;
+    }
+
+    read_u8() : number {
+        return this.buf[this.at++];
+    }
+
+    read_u32() : number {
+        for (let i = 0; i < 4; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_UINT32[0];
+    }
+
+    read_i32() : number {
+        for (let i = 0; i < 4; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_INT32[0];
+    }
+
+    read_f32() : number {
+        for (let i = 0; i < 4; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_FLOAT32[0];
+    }
+
+    read_i64() : bigint{
+        for (let i = 0; i < 8; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_INT64[0];
+    }
+
+    read_f64() : number {
+        for (let i = 0; i < 8; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_FLOAT64[0];
+    }
+}

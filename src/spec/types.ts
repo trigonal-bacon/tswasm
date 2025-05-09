@@ -18,3 +18,8 @@ export enum WASMRefType {
     funcref = 0x70,
     externref = 0x6F
 }
+
+export class WASMGlobalType {
+    mutable : boolean = false;
+    type : WASMValueType = WASMValueType.i32;
+}

@@ -1,5 +1,5 @@
 import { InstrNode } from "./Code";
-import { WASMValueType, WASMDeclType, WASMRefType } from "./types";
+import { WASMValueType, WASMDeclType, WASMRefType, WASMGlobalType } from "./types";
 
 export class WASMSection<SectionContent> {
     byteLen : number = 0;
@@ -22,7 +22,8 @@ export class WASMSection2Content {
     name : string = "";
     kind : WASMDeclType = WASMDeclType.func;
     index : number = 0;
-    type : WASMValueType = WASMValueType.nil;
+    type : WASMValueType | WASMRefType = WASMValueType.nil;
+    limits : WASMLimit = new WASMLimit();
 }
 
 export class WASMSection3Content {
@@ -32,6 +33,11 @@ export class WASMSection3Content {
 export class WASMSection4Content {
     refKind : WASMRefType = WASMRefType.funcref;
     limit : WASMLimit = new WASMLimit();
+}
+
+export class WASMSection6Content {
+    type : WASMGlobalType = new WASMGlobalType(); 
+    expr : Array<InstrNode> = [];
 }
 
 export class WASMSection7Content {
@@ -50,18 +56,22 @@ export class WASMLocalEnum {
     count : number = 0;
 }
 
+export class WASMSection9Content {
+    kind : number = 0;
+    offset : Array<InstrNode> = [];
+    funcrefs : Array<number> = [];
+}
+
 export class WASMSection10Content {
     byteLen : number = 0;
-    funcSig : number = 0;
     locals : Array<WASMLocalEnum> = [];
-    localTypes : Array<WASMValueType> = [];
     code : Array<InstrNode> = [];
 }
 
 export class WASMSection11Content {
     kind : number = 0;
     memidx : number = 0;
-    offset : InstrNode = new InstrNode();
+    offset : Array<InstrNode> = [];
     data : Uint8Array = new Uint8Array(0);
 };
 
