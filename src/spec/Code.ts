@@ -1,3 +1,4 @@
+import { WASMOPCode } from "./OpCode";
 import { WASMValueType } from "./types";
 
 const CONVERSION_BUFFER = new ArrayBuffer(8);
@@ -19,22 +20,22 @@ export class WASMValue {
         this.value = v.value;
         this.bigval = v.bigval;
     }
-    toU32() : number {
+    get u32() : number {
         return this.value;
     }
-    toI32() : number {
+    get i32() : number {
         return this.value;
     }
-    toF32() : number {
+    get f32() : number {
         return this.value;
     }
-    toI64() : bigint {
+    get i64() : bigint {
         return this.bigval;
     }
-    toF64() : number {
+    get f64() : number {
         return this.value;
     }
-    toNumeric() : number | bigint {
+    get numeric() : number | bigint {
         switch (this.type) {
             case WASMValueType.i64:
                 return this.bigval;
@@ -80,7 +81,7 @@ export class WASMValue {
 }
 
 export class InstrNode {
-    instr : number = 0; //fix
+    instr : WASMOPCode = WASMOPCode.op_nop; //fix
     hasElse : boolean = false;
     returnType : WASMValueType = WASMValueType.nil;
     immediates : Array<WASMValue> = [];

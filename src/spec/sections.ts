@@ -2,7 +2,6 @@ import { InstrNode } from "./Code";
 import { WASMValueType, WASMDeclType, WASMRefType, WASMGlobalType } from "./types";
 
 export class WASMSection<SectionContent> {
-    byteLen : number = 0;
     content : Array<SectionContent> = [];
 }
 

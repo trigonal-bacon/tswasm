@@ -11,19 +11,19 @@ import { Program } from "./Interpreter";
 function writeWASMValue(writer : FixedLengthWriter, value : WASMValue) : void {
     switch (value.type) {
         case WASMValueType.u32:
-            writer.write_u32(value.toU32())
+            writer.write_u32(value.u32)
             break;
         case WASMValueType.i32:
-            writer.write_i32(value.toI32())
+            writer.write_i32(value.i32)
             break;
         case WASMValueType.f32:
-            writer.write_f32(value.toF32())
+            writer.write_f32(value.f32)
             break;
         case WASMValueType.i64:
-            writer.write_i64(value.toI64())
+            writer.write_i64(value.i64)
             break;
         case WASMValueType.f64:
-            writer.write_f64(value.toF64())
+            writer.write_f64(value.f64)
             break;
         default:
             break;
@@ -79,17 +79,17 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             }
             case WASMOPCode.op_br_if:
             case WASMOPCode.op_br: {
-                const depth : number = instr.immediates[0].toU32();
+                const depth : number = instr.immediates[0].u32;
                 if (depth >= blockPtrStack.length) throw new Error("Branch depth OOB: " + depth);
                 blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
                 writer.write_u32(0); //temporarily write 0
                 break;
             }
             case WASMOPCode.op_br_table: {
-                writer.write_u32(instr.immediates[0].toU32()); //number of non-defaults
-                for (let i = 0; i < instr.immediates[0].toU32() + 1; i++) {
+                writer.write_u32(instr.immediates[0].u32); //number of non-defaults
+                for (let i = 0; i < instr.immediates[0].u32 + 1; i++) {
                     const immediate = instr.immediates[i + 1];
-                    const depth : number = immediate.toU32();
+                    const depth : number = immediate.u32;
                     if (depth >= blockPtrStack.length) 
                         throw new Error("Branch depth OOB: " + depth + " | " + blockPtrStack.length);
                     blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
@@ -100,16 +100,16 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_call: {
                 //funcidx
                 //write down the funcptr once this all works
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             }
             case WASMOPCode.op_call_indirect: {
                 //functype, probably won't work
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             }
             case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow:
-                writer.write_u8(instr.immediates[0].toU32());
+                writer.write_u8(instr.immediates[0].u32);
                 break;
             case WASMOPCode.op_i32_load: case WASMOPCode.op_i32_load8_s: case WASMOPCode.op_i32_load8_u: case WASMOPCode.op_i32_load16_s: case WASMOPCode.op_i32_load16_u:
             case WASMOPCode.op_i64_load: case WASMOPCode.op_i64_load8_s: case WASMOPCode.op_i64_load8_u: case WASMOPCode.op_i64_load16_s: case WASMOPCode.op_i64_load16_u: case WASMOPCode.op_i64_load32_s: case WASMOPCode.op_i64_load32_u:
@@ -119,8 +119,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_i64_store: case WASMOPCode.op_i64_store8: case WASMOPCode.op_i64_store16: case WASMOPCode.op_i64_store32:
             case WASMOPCode.op_f32_store:
             case WASMOPCode.op_f64_store:
-                writer.write_u32(instr.immediates[0].toU32());
-                writer.write_u32(instr.immediates[1].toU32());
+                writer.write_u32(instr.immediates[0].u32);
+                writer.write_u32(instr.immediates[1].u32);
                 break;
             case WASMOPCode.op_i32_const:
             case WASMOPCode.op_i64_const:
@@ -130,7 +130,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 break;
             case WASMOPCode.op_local_get: case WASMOPCode.op_local_set: case WASMOPCode.op_local_tee:
             case WASMOPCode.op_global_get: case WASMOPCode.op_global_set:
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             default:
                 break;
@@ -199,7 +199,7 @@ export default function createProgramFromRepr(repr : WASMRepr) : Program {
             throw new Error("Expected a table initialization");
         for (const elem of repr.section9.content) {
             //using passive tables
-            const offset = evalConstExpr(elem.offset).toU32();
+            const offset = evalConstExpr(elem.offset).u32;
             if (offset + elem.funcrefs.length > program.tables[0].length)
                 throw new Error("Out of Bounds element initialization");
             for (let i = 0; i < elem.funcrefs.length; ++i)
@@ -209,12 +209,11 @@ export default function createProgramFromRepr(repr : WASMRepr) : Program {
     if (repr.has_section(11)) {
         //data
         for (const data of repr.section11.content) {
-            const offset = evalConstExpr(data.offset).toU32();
+            const offset = evalConstExpr(data.offset).u32;
             if (offset + data.data.length > program.memory.length)
                 throw new Error("Out of bounds data initialization");
             program.memory.buffer.set(data.data, offset);
         }
     }
-    //error need to add imports from js side
     return program;
 }

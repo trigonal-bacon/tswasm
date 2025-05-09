@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InstrNode = exports.WASMValue = void 0;
+var OpCode_1 = require("./OpCode");
 var types_1 = require("./types");
 var CONVERSION_BUFFER = new ArrayBuffer(8);
 var CONVERSION_UINT8 = new Uint8Array(CONVERSION_BUFFER);
@@ -22,29 +23,53 @@ var WASMValue = /** @class */ (function () {
         this.value = v.value;
         this.bigval = v.bigval;
     };
-    WASMValue.prototype.toU32 = function () {
-        return this.value;
-    };
-    WASMValue.prototype.toI32 = function () {
-        return this.value;
-    };
-    WASMValue.prototype.toF32 = function () {
-        return this.value;
-    };
-    WASMValue.prototype.toI64 = function () {
-        return this.bigval;
-    };
-    WASMValue.prototype.toF64 = function () {
-        return this.value;
-    };
-    WASMValue.prototype.toNumeric = function () {
-        switch (this.type) {
-            case types_1.WASMValueType.i64:
-                return this.bigval;
-            default:
-                return this.value;
-        }
-    };
+    Object.defineProperty(WASMValue.prototype, "u32", {
+        get: function () {
+            return this.value;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(WASMValue.prototype, "i32", {
+        get: function () {
+            return this.value;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(WASMValue.prototype, "f32", {
+        get: function () {
+            return this.value;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(WASMValue.prototype, "i64", {
+        get: function () {
+            return this.bigval;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(WASMValue.prototype, "f64", {
+        get: function () {
+            return this.value;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    Object.defineProperty(WASMValue.prototype, "numeric", {
+        get: function () {
+            switch (this.type) {
+                case types_1.WASMValueType.i64:
+                    return this.bigval;
+                default:
+                    return this.value;
+            }
+        },
+        enumerable: false,
+        configurable: true
+    });
     WASMValue.createU32Literal = function (u32) {
         var ret = new WASMValue();
         CONVERSION_UINT32[0] = u32;
@@ -85,7 +110,7 @@ var WASMValue = /** @class */ (function () {
 exports.WASMValue = WASMValue;
 var InstrNode = /** @class */ (function () {
     function InstrNode() {
-        this.instr = 0; //fix
+        this.instr = OpCode_1.WASMOPCode.op_nop; //fix
         this.hasElse = false;
         this.returnType = types_1.WASMValueType.nil;
         this.immediates = [];

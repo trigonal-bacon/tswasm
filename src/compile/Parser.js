@@ -5,26 +5,64 @@ var Code_1 = require("../spec/Code");
 var OpCode_1 = require("../spec/OpCode");
 var sections_1 = require("../spec/sections");
 var types_1 = require("../spec/types");
-var Repr_1 = require("./Repr");
+function readLimit(lexer) {
+    var limit = new sections_1.WASMLimit();
+    var hasMax = lexer.read_uint8();
+    limit.hasMax = hasMax !== 0;
+    if (hasMax) {
+        limit.min = lexer.read_uint32();
+        limit.max = lexer.read_uint32();
+        if (limit.min > limit.max)
+            throw new Error("Limit min ".concat(limit.min, " greater than max ").concat(limit.max));
+    }
+    else {
+        limit.min = limit.max = lexer.read_uint32();
+    }
+    return limit;
+}
+function readValueType(lexer) {
+    var t = lexer.read_uint8();
+    switch (t) {
+        case types_1.WASMValueType.i32:
+        case types_1.WASMValueType.f32:
+        case types_1.WASMValueType.i64:
+        case types_1.WASMValueType.f64:
+        case types_1.WASMValueType.nil:
+            return t;
+    }
+    throw new Error("Invalid value type ".concat(t));
+}
+function readRefType(lexer) {
+    var t = lexer.read_uint8();
+    switch (t) {
+        case types_1.WASMRefType.funcref:
+        case types_1.WASMRefType.externref:
+            return t;
+    }
+    throw new Error("Invalid ref type ".concat(t));
+}
 var WASMParser = /** @class */ (function () {
     function WASMParser(bin) {
         this.bin = bin;
         this.lexer = new Lexer_1.Reader(bin);
     }
-    WASMParser.prototype.parse = function () {
-        var repr = new Repr_1.default();
+    WASMParser.prototype.parse = function (repr) {
         var lexer = this.lexer;
         lexer.read_float64(); //magic header
         while (lexer.has()) {
             var section = lexer.read_uint8();
             console.log("Parsing section " + section);
-            if (section > 12 || section === 0)
-                break; //error
-            if (repr.sections[section]) {
-                console.log("Section already exists"); //error
+            if (section > 12)
+                throw new Error("Trying to parse invalid section ".concat(section));
+            if (repr.has_section(section)) {
+                throw new Error("Section ".concat(section, " already exists"));
             }
-            repr.sections[section] = true;
+            repr.sectionLengths[section] = lexer.read_uint32();
+            var anchor = lexer.at;
             switch (section) {
+                case 0:
+                    this.parseSection0(repr);
+                    break;
                 case 1:
                     this.parseSection1(repr);
                     break;
@@ -63,41 +101,46 @@ var WASMParser = /** @class */ (function () {
                     break;
                 default: break;
             }
+            if (lexer.at !== anchor + repr.sectionLengths[section]) {
+                console.log(lexer.at);
+                throw new Error("Section ".concat(section, " has malformed length ").concat(repr.sectionLengths[section]));
+            }
         }
+        if (lexer.at !== lexer.buf.length)
+            throw new Error("Prematurely finished parsing the binary");
         console.log("Parse finished");
-        return repr;
+        repr.validate();
+        return;
+    };
+    WASMParser.prototype.parseSection0 = function (repr) {
+        //skip it
+        this.lexer.at += repr.sectionLengths[0];
     };
     WASMParser.prototype.parseSection1 = function (repr) {
         var lexer = this.lexer;
-        repr.section1.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMFuncType();
-            if (lexer.read_uint8() != 0x60)
-                break; //error?
+            var validate = lexer.read_uint8();
+            if (validate !== 0x60)
+                throw new Error("Expected 0x60 for functype, got ".concat(validate));
             var paramLen = lexer.read_uint32();
             for (var j = 0; j < paramLen; ++j) {
-                var valtype = lexer.read_uint8();
-                //error need to validate
+                var valtype = readValueType(lexer);
                 content.args.push(valtype);
             }
             var retLen = lexer.read_uint32();
             if (retLen === 0)
                 content.ret = types_1.WASMValueType.nil;
-            else if (retLen === 1) {
-                var valtype = lexer.read_uint8();
-                //error need to validate
-                content.ret = valtype;
-            }
-            else {
+            else if (retLen === 1)
+                content.ret = readValueType(lexer);
+            else
                 throw new Error("Multireturn currently not supported");
-            }
             repr.section1.content.push(content);
         }
     };
     WASMParser.prototype.parseSection2 = function (repr) {
         var lexer = this.lexer;
-        repr.section2.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection2Content();
@@ -108,14 +151,12 @@ var WASMParser = /** @class */ (function () {
                 case types_1.WASMDeclType.func:
                     ++repr.importFunc;
                     content.index = lexer.read_uint32();
-                    //error on bad index
-                    repr.funcTypes.push(content.index); //index to the functypes
+                    repr.funcTypes.push(content.index);
                     break;
                 case types_1.WASMDeclType.global: {
                     ++repr.importGlobal;
                     var globType = new types_1.WASMGlobalType();
-                    globType.type = lexer.read_uint8();
-                    //error validate
+                    globType.type = readValueType(lexer);
                     globType.mutable = (lexer.read_uint8() !== 0);
                     content.type = globType.type;
                     repr.globalTypes.push(globType);
@@ -124,27 +165,18 @@ var WASMParser = /** @class */ (function () {
                 case types_1.WASMDeclType.table:
                     content.type = lexer.read_uint8();
                 case types_1.WASMDeclType.mem: {
-                    //error;
-                    var hasMax = lexer.read_uint8();
-                    content.limits.hasMax = hasMax !== 0;
-                    if (hasMax) {
-                        content.limits.min = lexer.read_uint32();
-                        content.limits.max = lexer.read_uint32();
-                    }
-                    else {
-                        content.limits.min = content.limits.max = lexer.read_uint32();
-                    }
+                    content.limits = readLimit(lexer);
                     break;
                 }
                 default:
-                    break; //error
+                    throw new Error("Invalid import type");
+                    break;
             }
             repr.section2.content.push(content);
         }
     };
     WASMParser.prototype.parseSection3 = function (repr) {
         var lexer = this.lexer;
-        repr.section3.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection3Content();
@@ -155,45 +187,24 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection4 = function (repr) {
         var lexer = this.lexer;
-        repr.section4.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection4Content();
-            var kind = lexer.read_uint8();
-            //error need to validate
+            var kind = readRefType(lexer);
             content.refKind = kind;
-            var hasMax = lexer.read_uint8();
-            content.limit.hasMax = hasMax !== 0;
-            if (hasMax) {
-                content.limit.min = lexer.read_uint32();
-                content.limit.max = lexer.read_uint32();
-            }
-            else {
-                content.limit.min = content.limit.max = lexer.read_uint32();
-            }
+            content.limit = readLimit(lexer);
         }
     };
     WASMParser.prototype.parseSection5 = function (repr) {
         var lexer = this.lexer;
-        repr.section5.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
-            var content = new sections_1.WASMLimit();
-            var hasMax = lexer.read_uint8();
-            content.hasMax = hasMax !== 0;
-            if (hasMax) {
-                content.min = lexer.read_uint32();
-                content.max = lexer.read_uint32();
-            }
-            else {
-                content.min = content.max = lexer.read_uint32();
-            }
+            var content = readLimit(lexer);
             repr.section5.content.push(content);
         }
     };
     WASMParser.prototype.parseSection6 = function (repr) {
         var lexer = this.lexer;
-        repr.section6.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection6Content();
@@ -207,13 +218,13 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection7 = function (repr) {
         var lexer = this.lexer;
-        repr.section7.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection7Content();
             content.name = lexer.read_string();
             var kind = lexer.read_uint8();
-            //error need to validate
+            if (kind >= 4)
+                throw new Error("Invalid export type ".concat(kind));
             content.kind = kind;
             content.index = lexer.read_uint32();
             repr.section7.content.push(content);
@@ -221,12 +232,10 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection8 = function (repr) {
         var lexer = this.lexer;
-        repr.section8.byteLen = lexer.read_uint32();
         repr.section8.index = lexer.read_uint32();
     };
     WASMParser.prototype.parseSection9 = function (repr) {
         var lexer = this.lexer;
-        repr.section9.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection9Content();
@@ -240,7 +249,6 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection10 = function (repr) {
         var lexer = this.lexer;
-        repr.section10.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var section = new sections_1.WASMSection10Content();
@@ -248,8 +256,7 @@ var WASMParser = /** @class */ (function () {
             var localChunks = lexer.read_uint32();
             for (var j = 0; j < localChunks; ++j) {
                 var count = lexer.read_uint32();
-                var type = lexer.read_uint8();
-                //error validate
+                var type = readValueType(lexer);
                 var en = new sections_1.WASMLocalEnum();
                 en.count = count;
                 en.type = type;
@@ -261,7 +268,6 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection11 = function (repr) {
         var lexer = this.lexer;
-        repr.section11.byteLen = lexer.read_uint32();
         var sectionLen = lexer.read_uint32();
         for (var i = 0; i < sectionLen; ++i) {
             var content = new sections_1.WASMSection11Content();
@@ -276,7 +282,7 @@ var WASMParser = /** @class */ (function () {
                 case 1:
                     break;
                 default:
-                    break; //error
+                    throw new Error("Invalid data flag ".concat(kind));
             }
             var len = lexer.read_uint32();
             content.data = this.bin.slice(lexer.at, lexer.at += len);
@@ -285,7 +291,6 @@ var WASMParser = /** @class */ (function () {
     };
     WASMParser.prototype.parseSection12 = function (repr) {
         var lexer = this.lexer;
-        repr.section12.byteLen = lexer.read_uint32();
         repr.section12.dataCount = lexer.read_uint32();
     };
     WASMParser.prototype.parseCodeBlock = function () {
@@ -321,9 +326,8 @@ var WASMParser = /** @class */ (function () {
                 case OpCode_1.WASMOPCode.op_call_indirect: {
                     var index = lexer.read_uint32();
                     currInstr.immediates.push(Code_1.WASMValue.createU32Literal(index));
-                    if (lexer.read_uint8() != 0x00) {
-                        //error typeuse not supported
-                    }
+                    if (lexer.read_uint8() != 0x00)
+                        throw new Error("call_indirect typeuse not supported");
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_br_table: {
@@ -387,7 +391,8 @@ var WASMParser = /** @class */ (function () {
                     currInstr.immediates.push(Code_1.WASMValue.createU32Literal(lexer.read_uint32()));
                     break;
                 default:
-                    //error on invalid opcodes
+                    if (!(instr_op in OpCode_1.WASMOPDefs))
+                        throw new Error("Invalid opcode ".concat(instr_op));
                     break;
             }
         }

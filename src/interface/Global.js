@@ -43,7 +43,7 @@ var WASMGlobalImport = /** @class */ (function () {
     });
     Object.defineProperty(WASMGlobalImport.prototype, "value", {
         get: function () {
-            return this._value.toNumeric();
+            return this._value.numeric;
         },
         enumerable: false,
         configurable: true

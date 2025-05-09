@@ -4,7 +4,6 @@ exports.WASMSection12Content = exports.WASMSection11Content = exports.WASMSectio
 var types_1 = require("./types");
 var WASMSection = /** @class */ (function () {
     function WASMSection() {
-        this.byteLen = 0;
         this.content = [];
     }
     return WASMSection;

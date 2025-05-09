@@ -9,19 +9,19 @@ var Interpreter_1 = require("./Interpreter");
 function writeWASMValue(writer, value) {
     switch (value.type) {
         case types_1.WASMValueType.u32:
-            writer.write_u32(value.toU32());
+            writer.write_u32(value.u32);
             break;
         case types_1.WASMValueType.i32:
-            writer.write_i32(value.toI32());
+            writer.write_i32(value.i32);
             break;
         case types_1.WASMValueType.f32:
-            writer.write_f32(value.toF32());
+            writer.write_f32(value.f32);
             break;
         case types_1.WASMValueType.i64:
-            writer.write_i64(value.toI64());
+            writer.write_i64(value.i64);
             break;
         case types_1.WASMValueType.f64:
-            writer.write_f64(value.toF64());
+            writer.write_f64(value.f64);
             break;
         default:
             break;
@@ -84,7 +84,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             }
             case OpCode_1.WASMOPCode.op_br_if:
             case OpCode_1.WASMOPCode.op_br: {
-                var depth = instr.immediates[0].toU32();
+                var depth = instr.immediates[0].u32;
                 if (depth >= blockPtrStack.length)
                     throw new Error("Branch depth OOB: " + depth);
                 blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
@@ -92,10 +92,10 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
                 break;
             }
             case OpCode_1.WASMOPCode.op_br_table: {
-                writer.write_u32(instr.immediates[0].toU32()); //number of non-defaults
-                for (var i = 0; i < instr.immediates[0].toU32() + 1; i++) {
+                writer.write_u32(instr.immediates[0].u32); //number of non-defaults
+                for (var i = 0; i < instr.immediates[0].u32 + 1; i++) {
                     var immediate = instr.immediates[i + 1];
-                    var depth = immediate.toU32();
+                    var depth = immediate.u32;
                     if (depth >= blockPtrStack.length)
                         throw new Error("Branch depth OOB: " + depth + " | " + blockPtrStack.length);
                     blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
@@ -106,17 +106,17 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             case OpCode_1.WASMOPCode.op_call: {
                 //funcidx
                 //write down the funcptr once this all works
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             }
             case OpCode_1.WASMOPCode.op_call_indirect: {
                 //functype, probably won't work
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             }
             case OpCode_1.WASMOPCode.op_memory_size:
             case OpCode_1.WASMOPCode.op_memory_grow:
-                writer.write_u8(instr.immediates[0].toU32());
+                writer.write_u8(instr.immediates[0].u32);
                 break;
             case OpCode_1.WASMOPCode.op_i32_load:
             case OpCode_1.WASMOPCode.op_i32_load8_s:
@@ -141,8 +141,8 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             case OpCode_1.WASMOPCode.op_i64_store32:
             case OpCode_1.WASMOPCode.op_f32_store:
             case OpCode_1.WASMOPCode.op_f64_store:
-                writer.write_u32(instr.immediates[0].toU32());
-                writer.write_u32(instr.immediates[1].toU32());
+                writer.write_u32(instr.immediates[0].u32);
+                writer.write_u32(instr.immediates[1].u32);
                 break;
             case OpCode_1.WASMOPCode.op_i32_const:
             case OpCode_1.WASMOPCode.op_i64_const:
@@ -155,7 +155,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             case OpCode_1.WASMOPCode.op_local_tee:
             case OpCode_1.WASMOPCode.op_global_get:
             case OpCode_1.WASMOPCode.op_global_set:
-                writer.write_u32(instr.immediates[0].toU32());
+                writer.write_u32(instr.immediates[0].u32);
                 break;
             default:
                 break;
@@ -228,7 +228,7 @@ function createProgramFromRepr(repr) {
         for (var _d = 0, _e = repr.section9.content; _d < _e.length; _d++) {
             var elem = _e[_d];
             //using passive tables
-            var offset = (0, Consteval_1.default)(elem.offset).toU32();
+            var offset = (0, Consteval_1.default)(elem.offset).u32;
             if (offset + elem.funcrefs.length > program.tables[0].length)
                 throw new Error("Out of Bounds element initialization");
             for (var i = 0; i < elem.funcrefs.length; ++i)
@@ -239,12 +239,11 @@ function createProgramFromRepr(repr) {
         //data
         for (var _f = 0, _g = repr.section11.content; _f < _g.length; _f++) {
             var data = _g[_f];
-            var offset = (0, Consteval_1.default)(data.offset).toU32();
+            var offset = (0, Consteval_1.default)(data.offset).u32;
             if (offset + data.data.length > program.memory.length)
                 throw new Error("Out of bounds data initialization");
             program.memory.buffer.set(data.data, offset);
         }
     }
-    //error need to add imports from js side
     return program;
 }

@@ -38,6 +38,6 @@ export class WASMGlobalImport {
     }
 
     get value() : number | bigint {
-        return this._value.toNumeric();
+        return this._value.numeric;
     }
 }

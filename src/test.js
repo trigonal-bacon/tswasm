@@ -1,14 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-var Parser_1 = require("./compile/Parser");
 var fs = require("fs");
 var Convert_1 = require("./interpret/Convert");
 var Code_1 = require("./spec/Code");
 var Global_1 = require("./interface/Global");
+var Module_1 = require("./compile/Module");
 var buf = fs.readFileSync("test/stuff.wasm");
-var b = new Parser_1.default(buf);
-var c = b.parse();
-c.validate();
+var buf2 = new Uint8Array(buf.length);
+for (var i = 0; i < buf.length; ++i)
+    buf2[i] = buf[i];
+var bin = new Uint8Array(buf2).buffer;
+var A = new Module_1.default(bin);
+var c = A.repr;
 //convertToExecForm(c);
 var p = (0, Convert_1.default)(c);
 //console.log(p.code);
@@ -22,5 +25,5 @@ p.initializeImports({
         "bar": console.log
     }
 }, c.section2.content);
-console.log(p.run(2, [Code_1.WASMValue.createF32Literal(19564323528)]));
+console.log(p.run(2, [Code_1.WASMValue.createF32Literal(-138)]));
 //console.log(glob.value);

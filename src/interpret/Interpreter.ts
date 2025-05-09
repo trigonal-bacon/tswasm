@@ -31,9 +31,9 @@ function popSafe(arr : Array<WASMValue>) : WASMValue {
 }
 
 export class Program {
-    code : Uint8Array;
+    code : Uint8Array = new Uint8Array(0);
     memory : WASMMemory = new WASMMemory({});
-    funcPtrs : Uint32Array;
+    funcPtrs : Uint32Array = new Uint32Array(0);
     funcTypes : Array<WASMFuncType> = [];
     globals : Array<WASMValue> = [];
     tables : Array<WASMTable> = [];
@@ -154,7 +154,7 @@ export class Program {
                         if (this.funcTypes[entry].ret !== WASMValueType.nil) {
                             if (valueStack.length !== 1) throw new Error("Stack size not exactly 1");
                             const retval = valueStack.pop();
-                            return retval?.toNumeric();
+                            return retval?.numeric;
                         }
                         if (valueStack.length !== 0) throw new Error("Stack expected to be empty");
                         return;
@@ -182,61 +182,61 @@ export class Program {
                 case WASMOPCode.op_i32_add: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal(x.toI32() + y.toI32()));
+                    valueStack.push(WASMValue.createI32Literal(x.i32 + y.i32));
                     break;
                 }
                 case WASMOPCode.op_i32_sub: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal(x.toI32() - y.toI32()));
+                    valueStack.push(WASMValue.createI32Literal(x.i32 - y.i32));
                     break;
                 }
                 case WASMOPCode.op_i32_mul: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal(x.toI32() * y.toI32()));
+                    valueStack.push(WASMValue.createI32Literal(x.i32 * y.i32));
                     break;
                 }
                 case WASMOPCode.op_i32_div_s: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal((x.toI32() / y.toI32())|0));
+                    valueStack.push(WASMValue.createI32Literal((x.i32 / y.i32)|0));
                     break;
                 }
                 case WASMOPCode.op_i32_div_u: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal(Math.trunc(x.toU32() / y.toU32())));
+                    valueStack.push(WASMValue.createI32Literal(Math.trunc(x.u32 / y.u32)));
                     break;
                 }
                 case WASMOPCode.op_f64_add: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createF64Literal(x.toF64() + y.toF64()));
+                    valueStack.push(WASMValue.createF64Literal(x.f64 + y.f64));
                     break;
                 }
                 case WASMOPCode.op_f64_sub: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createF64Literal(x.toF64() - y.toF64()));
+                    valueStack.push(WASMValue.createF64Literal(x.f64 - y.f64));
                     break;
                 }
                 case WASMOPCode.op_f64_mul: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createF64Literal(x.toF64() * y.toF64()));
+                    valueStack.push(WASMValue.createF64Literal(x.f64 * y.f64));
                     break;
                 }
                 case WASMOPCode.op_f64_div: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createF64Literal(x.toF64() / y.toF64()));
+                    valueStack.push(WASMValue.createF64Literal(x.f64 / y.f64));
                     break;
                 }
                 case WASMOPCode.op_f64_lt: {
                     const y = popSafe(valueStack);
                     const x = popSafe(valueStack);
-                    valueStack.push(WASMValue.createI32Literal(toTruthy(x.toF64() < y.toF64())));
+                    valueStack.push(WASMValue.createI32Literal(toTruthy(x.f64 < y.f64)));
                     break;
                 }
                 case WASMOPCode.op_call: {
@@ -245,7 +245,7 @@ export class Program {
                         //imported func call
                         const argArr : Array<any> = new Array(this.funcTypes[funcIdx].args.length);
                         for (let i = argArr.length; i > 0; --i) 
-                            argArr[i - 1] = popSafe(valueStack).toNumeric();
+                            argArr[i - 1] = popSafe(valueStack).numeric;
                         const ret = this.importedFuncs[funcIdx](...argArr);
                         switch(this.funcTypes[funcIdx].ret) {
                             case WASMValueType.i32:
@@ -313,13 +313,13 @@ export class Program {
                 case WASMOPCode.op_br_if: {
                     const idx = reader.read_u32();
                     const x = popSafe(valueStack);
-                    if (x.toI32() !== 0) reader.at = idx;
+                    if (x.i32 !== 0) reader.at = idx;
                     break;
                 }
                 case WASMOPCode.op_if: {
                     const idx = reader.read_u32();
                     const x = popSafe(valueStack);
-                    if (x.toI32() === 0) reader.at = idx;
+                    if (x.i32 === 0) reader.at = idx;
                     break;
                 }
             }
