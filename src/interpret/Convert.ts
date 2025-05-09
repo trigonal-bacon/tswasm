@@ -3,10 +3,7 @@ import WASMRepr from "../compile/Repr";
 import { FixedLengthWriter } from "../helpers/Lexer";
 import { InstrNode, WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
-import { WASMFuncType } from "../spec/sections";
 import { WASMValueType } from "../spec/types";
-import evalConstExpr from "./Consteval";
-import { Program } from "./Interpreter";
 
 function writeWASMValue(writer : FixedLengthWriter, value : WASMValue) : void {
     switch (value.type) {
@@ -138,14 +135,15 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
     }
 }
 
-function convertToExecForm(repr : WASMRepr) : Program {
+export function convertToExecForm(repr : WASMRepr) : Uint8Array {
     console.log("Begin conversion");
     const writer = new FixedLengthWriter();
-    const funcPtrs = new Uint32Array(repr.section10.content.length);
+    for (let i = 0; i < repr.section10.content.length; ++i)
+        writer.write_u32(0);
     if (repr.has_section(10)) {
         for (let i = 0; i < repr.section10.content.length; ++i) {
             const code = repr.section10.content[i];
-            funcPtrs[i] = writer.at;
+            writer.retroactive_write_u32(writer.at, i * 4);
             //write [#args] [#locals] [code]
             const funcSig = repr.section1.content[repr.section3.content[i].index];
             writer.write_u32(funcSig.args.length);
@@ -156,64 +154,6 @@ function convertToExecForm(repr : WASMRepr) : Program {
             writer.write_u8(WASMOPCode.op_return); //force a return statement
         }
     }
-    const program = new Program(writer.toBuffer(), funcPtrs);
     console.log("End conversion");
-    return program;
-}
-
-export default function createProgramFromRepr(repr : WASMRepr) : Program {
-    const program = convertToExecForm(repr);
-    program.importFuncCount = repr.importFunc;
-    program.importGlobalCount = repr.importGlobal;
-    if (repr.has_section(1)) {
-        //functypes
-        program.funcTypes = repr.funcTypes.map(idx => repr.section1.content[idx]);
-    }
-    if (repr.has_section(4)) {
-        //tables
-        program.initializeTables(repr.section4.content);
-    }
-    if (repr.has_section(5)) {
-        //memory
-        let minPages = 0;
-        let maxPages = 0;
-        for (const memory of repr.section5.content) {
-            minPages = memory.min;
-            maxPages = Math.max(memory.max, memory.min);
-        }
-        program.initializeMemory(minPages, maxPages);
-    }
-    if (repr.has_section(6)) {
-        //globals
-        for (const glob of repr.section6.content) {
-            program.globals.push(evalConstExpr(glob.expr));
-        }
-    }
-    if (repr.has_section(8)) {
-        //start
-        program.start = repr.section8.index;
-    }
-    if (repr.has_section(9)) {
-        //elems
-        if (program.tables.length === 0)
-            throw new Error("Expected a table initialization");
-        for (const elem of repr.section9.content) {
-            //using passive tables
-            const offset = evalConstExpr(elem.offset).u32;
-            if (offset + elem.funcrefs.length > program.tables[0].length)
-                throw new Error("Out of Bounds element initialization");
-            for (let i = 0; i < elem.funcrefs.length; ++i)
-                program.tables[0].elements[i + offset] = elem.funcrefs[i];
-        }
-    }
-    if (repr.has_section(11)) {
-        //data
-        for (const data of repr.section11.content) {
-            const offset = evalConstExpr(data.offset).u32;
-            if (offset + data.data.length > program.memory.length)
-                throw new Error("Out of bounds data initialization");
-            program.memory.buffer.set(data.data, offset);
-        }
-    }
-    return program;
+    return writer.toBuffer();
 }

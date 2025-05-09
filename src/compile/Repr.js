@@ -82,6 +82,16 @@ var WASMRepr = /** @class */ (function () {
                 this.validateCodeBlock(content.code, locals, typeDef.ret);
             }
         }
+        if (this.has_section(8)) {
+            var idx = this.section8.index;
+            if (idx < this.importFunc)
+                throw new Error("Start function ".concat(idx, " is an import"));
+            else if (idx >= this.funcTypes.length)
+                throw new Error("Start function ".concat(idx, " out of bounds"));
+            var funcType = this.section1.content[this.funcTypes[idx]];
+            if (funcType.args.length !== 0 || funcType.ret !== types_1.WASMValueType.nil)
+                throw new Error("Start function must not take or return values");
+        }
         //check for existence of only one memory segment?
     };
     WASMRepr.prototype.__validateCodeBlockRecursive = function (code, locals, block_types, result_type, func_return) {

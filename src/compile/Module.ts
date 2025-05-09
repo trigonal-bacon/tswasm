@@ -1,12 +1,11 @@
 import WASMParser from "./Parser";
 import WASMRepr from "./Repr";
 
-export default class WASMModule {
-    repr : WASMRepr;
+export default class WASMModule extends WASMRepr {
     constructor(bin : ArrayBuffer) {
+        super();
         const buf = new Uint8Array(bin);
-        this.repr = new WASMRepr();
         const parser = new WASMParser(buf);
-        parser.parse(this.repr);
+        parser.parse(this);
     }
 }

@@ -1,11 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.default = createProgramFromRepr;
+exports.convertToExecForm = convertToExecForm;
 var Lexer_1 = require("../helpers/Lexer");
 var OpCode_1 = require("../spec/OpCode");
 var types_1 = require("../spec/types");
-var Consteval_1 = require("./Consteval");
-var Interpreter_1 = require("./Interpreter");
 function writeWASMValue(writer, value) {
     switch (value.type) {
         case types_1.WASMValueType.u32:
@@ -165,11 +163,12 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
 function convertToExecForm(repr) {
     console.log("Begin conversion");
     var writer = new Lexer_1.FixedLengthWriter();
-    var funcPtrs = new Uint32Array(repr.section10.content.length);
+    for (var i = 0; i < repr.section10.content.length; ++i)
+        writer.write_u32(0);
     if (repr.has_section(10)) {
         for (var i = 0; i < repr.section10.content.length; ++i) {
             var code = repr.section10.content[i];
-            funcPtrs[i] = writer.at;
+            writer.retroactive_write_u32(writer.at, i * 4);
             //write [#args] [#locals] [code]
             var funcSig = repr.section1.content[repr.section3.content[i].index];
             writer.write_u32(funcSig.args.length);
@@ -183,67 +182,6 @@ function convertToExecForm(repr) {
             writer.write_u8(OpCode_1.WASMOPCode.op_return); //force a return statement
         }
     }
-    var program = new Interpreter_1.Program(writer.toBuffer(), funcPtrs);
     console.log("End conversion");
-    return program;
-}
-function createProgramFromRepr(repr) {
-    var program = convertToExecForm(repr);
-    program.importFuncCount = repr.importFunc;
-    program.importGlobalCount = repr.importGlobal;
-    if (repr.has_section(1)) {
-        //functypes
-        program.funcTypes = repr.funcTypes.map(function (idx) { return repr.section1.content[idx]; });
-    }
-    if (repr.has_section(4)) {
-        //tables
-        program.initializeTables(repr.section4.content);
-    }
-    if (repr.has_section(5)) {
-        //memory
-        var minPages = 0;
-        var maxPages = 0;
-        for (var _i = 0, _a = repr.section5.content; _i < _a.length; _i++) {
-            var memory = _a[_i];
-            minPages = memory.min;
-            maxPages = Math.max(memory.max, memory.min);
-        }
-        program.initializeMemory(minPages, maxPages);
-    }
-    if (repr.has_section(6)) {
-        //globals
-        for (var _b = 0, _c = repr.section6.content; _b < _c.length; _b++) {
-            var glob = _c[_b];
-            program.globals.push((0, Consteval_1.default)(glob.expr));
-        }
-    }
-    if (repr.has_section(8)) {
-        //start
-        program.start = repr.section8.index;
-    }
-    if (repr.has_section(9)) {
-        //elems
-        if (program.tables.length === 0)
-            throw new Error("Expected a table initialization");
-        for (var _d = 0, _e = repr.section9.content; _d < _e.length; _d++) {
-            var elem = _e[_d];
-            //using passive tables
-            var offset = (0, Consteval_1.default)(elem.offset).u32;
-            if (offset + elem.funcrefs.length > program.tables[0].length)
-                throw new Error("Out of Bounds element initialization");
-            for (var i = 0; i < elem.funcrefs.length; ++i)
-                program.tables[0].elements[i + offset] = elem.funcrefs[i];
-        }
-    }
-    if (repr.has_section(11)) {
-        //data
-        for (var _f = 0, _g = repr.section11.content; _f < _g.length; _f++) {
-            var data = _g[_f];
-            var offset = (0, Consteval_1.default)(data.offset).u32;
-            if (offset + data.data.length > program.memory.length)
-                throw new Error("Out of bounds data initialization");
-            program.memory.buffer.set(data.data, offset);
-        }
-    }
-    return program;
+    return writer.toBuffer();
 }

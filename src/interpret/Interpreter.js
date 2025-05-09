@@ -8,7 +8,8 @@ var types_1 = require("../spec/types");
 var Global_1 = require("../interface/Global");
 var Memory_1 = require("../interface/Memory");
 var Table_1 = require("../interface/Table");
-//TODO: fix fragmentation with imports
+var Convert_1 = require("./Convert");
+var ConstEval_1 = require("./ConstEval");
 //TODO: speed up with in-place allocation
 var StackFrame = /** @class */ (function () {
     function StackFrame(locals, pc) {
@@ -28,20 +29,92 @@ function popSafe(arr) {
         throw new Error("Won't happen");
     return v;
 }
+function readFuncPtr(reader, idx) {
+    reader.at = idx * 4;
+    return reader.read_u32();
+}
 var Program = /** @class */ (function () {
-    function Program(code, funcPtrs) {
+    function Program(repr, imports) {
         this.code = new Uint8Array(0);
         this.memory = new Memory_1.default({});
-        this.funcPtrs = new Uint32Array(0);
         this.funcTypes = [];
         this.globals = [];
         this.tables = [];
         this.importedFuncs = [];
         this.importFuncCount = 0;
         this.importGlobalCount = 0;
-        this.start = -1;
-        this.code = code;
-        this.funcPtrs = funcPtrs;
+        this.funcCount = 0;
+        this.exports = {};
+        this.code = (0, Convert_1.convertToExecForm)(repr);
+        this.importFuncCount = repr.importFunc;
+        this.importGlobalCount = repr.importGlobal;
+        if (repr.has_section(1))
+            //functypes
+            this.funcTypes = repr.funcTypes.map(function (idx) { return repr.section1.content[idx]; });
+        if (repr.has_section(2))
+            //imports
+            this.initializeImports(imports, repr.section2.content);
+        if (repr.has_section(3))
+            //functions
+            this.funcCount = repr.section3.content.length;
+        if (repr.has_section(4))
+            //tables
+            this.initializeTables(repr.section4.content);
+        if (repr.has_section(5)) {
+            //memory
+            var minPages = 0;
+            var maxPages = 0;
+            for (var _i = 0, _a = repr.section5.content; _i < _a.length; _i++) {
+                var memory = _a[_i];
+                minPages = memory.min;
+                maxPages = Math.max(memory.max, memory.min);
+            }
+            this.initializeMemory(minPages, maxPages);
+        }
+        if (repr.has_section(6)) {
+            //globals
+            for (var _b = 0, _c = repr.section6.content; _b < _c.length; _b++) {
+                var glob = _c[_b];
+                this.globals.push((0, ConstEval_1.default)(glob.expr));
+            }
+        }
+        if (repr.has_section(7)) {
+            //exports
+            //error fix
+            //0 = func
+            //1 = table
+            //2 = memory
+            //3 = global
+        }
+        if (repr.has_section(9)) {
+            //elems
+            if (this.tables.length === 0)
+                throw new Error("Expected a table initialization");
+            for (var _d = 0, _e = repr.section9.content; _d < _e.length; _d++) {
+                var elem = _e[_d];
+                //using passive tables
+                var offset = (0, ConstEval_1.default)(elem.offset).u32;
+                if (offset + elem.funcrefs.length > this.tables[0].length)
+                    throw new Error("Out of Bounds element initialization");
+                for (var i = 0; i < elem.funcrefs.length; ++i)
+                    this.tables[0].elements[i + offset] = elem.funcrefs[i];
+            }
+        }
+        if (repr.has_section(11)) {
+            //data
+            for (var _f = 0, _g = repr.section11.content; _f < _g.length; _f++) {
+                var data = _g[_f];
+                var offset = (0, ConstEval_1.default)(data.offset).u32;
+                if (offset + data.data.length > this.memory.length)
+                    throw new Error("Out of bounds data initialization");
+                this.memory.buffer.set(data.data, offset);
+            }
+        }
+        if (repr.has_section(8)) {
+            //start
+            //this.start = repr.section8.index;
+            this.run(repr.section8.index, []);
+        }
     }
     Program.prototype.initializeMemory = function (start, end) {
         this.memory = new Memory_1.default({ initial: start, maximum: end });
@@ -111,14 +184,14 @@ var Program = /** @class */ (function () {
     };
     Program.prototype.run = function (entry, args) {
         var _a;
-        if (entry < 0 || entry >= this.funcPtrs.length + this.importFuncCount)
+        if (entry < 0 || entry >= this.funcCount + this.importFuncCount)
             throw new Error("Invalid function index");
         if (entry < this.importFuncCount) {
             console.warn("Attempting to start with an imported function: returning 0 for now");
             return 0; //import function call?
         }
         var reader = new Lexer_1.FixedLengthReader(this.code);
-        reader.at = this.funcPtrs[entry - this.importFuncCount];
+        reader.at = readFuncPtr(reader, entry - this.importFuncCount);
         var valueStack = [];
         var callStack = [];
         var argC = reader.read_u32();
@@ -137,7 +210,6 @@ var Program = /** @class */ (function () {
             switch (instr) {
                 case OpCode_1.WASMOPCode.op_unreachable:
                     throw new Error("Unreachable");
-                    break;
                 case OpCode_1.WASMOPCode.op_drop:
                     popSafe(valueStack);
                     break;
@@ -262,13 +334,12 @@ var Program = /** @class */ (function () {
                     }
                     var frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = this.funcPtrs[funcIdx - this.importFuncCount];
+                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
                     var argC_1 = reader.read_u32();
                     var localC_1 = reader.read_u32();
                     locals = new Array(argC_1 + localC_1);
-                    for (var i = argC_1; i > 0; --i) {
+                    for (var i = argC_1; i > 0; --i)
                         locals[i - 1] = popSafe(valueStack);
-                    }
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_local_get: {

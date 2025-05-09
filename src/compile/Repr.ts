@@ -97,6 +97,16 @@ export default class WASMRepr {
                 this.validateCodeBlock(content.code, locals, typeDef.ret);
             }
         }
+        if (this.has_section(8)) {
+            const idx = this.section8.index;
+            if (idx < this.importFunc)
+                throw new Error(`Start function ${idx} is an import`);
+            else if (idx >= this.funcTypes.length)
+                throw new Error(`Start function ${idx} out of bounds`);
+            const funcType = this.section1.content[this.funcTypes[idx]];
+            if (funcType.args.length !== 0 || funcType.ret !== WASMValueType.nil)
+                throw new Error(`Start function must not take or return values`);
+        }
         //check for existence of only one memory segment?
     }
 

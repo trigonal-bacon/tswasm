@@ -6,8 +6,10 @@ import { WASMValueType } from "../spec/types";
 import { WASMGlobalImport } from "../interface/Global";
 import WASMMemory from "../interface/Memory";
 import WASMTable from "../interface/Table";
+import WASMModule from "../compile/Module";
+import { convertToExecForm } from "./Convert";
+import evalConstExpr from "./ConstEval";
 
-//TODO: fix fragmentation with imports
 //TODO: speed up with in-place allocation
 
 class StackFrame {
@@ -30,10 +32,14 @@ function popSafe(arr : Array<WASMValue>) : WASMValue {
     return v;
 }
 
+function readFuncPtr(reader : FixedLengthReader, idx : number) : number {
+    reader.at = idx * 4;
+    return reader.read_u32();
+}
+
 export class Program {
     code : Uint8Array = new Uint8Array(0);
     memory : WASMMemory = new WASMMemory({});
-    funcPtrs : Uint32Array = new Uint32Array(0);
     funcTypes : Array<WASMFuncType> = [];
     globals : Array<WASMValue> = [];
     tables : Array<WASMTable> = [];
@@ -42,11 +48,82 @@ export class Program {
     importFuncCount : number = 0;
     importGlobalCount : number = 0;
 
-    start : number = -1;
+    funcCount : number = 0;
 
-    constructor(code : Uint8Array, funcPtrs : Uint32Array) {
-        this.code = code;
-        this.funcPtrs = funcPtrs;
+    exports : object = {};
+
+    constructor(repr : WASMModule, imports : any) {
+        this.code = convertToExecForm(repr);
+        this.importFuncCount = repr.importFunc;
+        this.importGlobalCount = repr.importGlobal;
+        if (repr.has_section(1)) 
+            //functypes
+            this.funcTypes = repr.funcTypes.map(idx => repr.section1.content[idx]);
+        
+        if (repr.has_section(2)) 
+            //imports
+            this.initializeImports(imports, repr.section2.content);
+        
+        if (repr.has_section(3)) 
+            //functions
+            this.funcCount = repr.section3.content.length;
+        
+        if (repr.has_section(4)) 
+            //tables
+            this.initializeTables(repr.section4.content);
+        
+        if (repr.has_section(5)) {
+            //memory
+            let minPages = 0;
+            let maxPages = 0;
+            for (const memory of repr.section5.content) {
+                minPages = memory.min;
+                maxPages = Math.max(memory.max, memory.min);
+            }
+            this.initializeMemory(minPages, maxPages);
+        }
+        if (repr.has_section(6)) {
+            //globals
+            for (const glob of repr.section6.content) {
+                this.globals.push(evalConstExpr(glob.expr));
+            }
+        }
+        if (repr.has_section(7)) {
+            //exports
+            //error fix
+            //0 = func
+            //1 = table
+            //2 = memory
+            //3 = global
+        }
+        if (repr.has_section(9)) {
+            //elems
+            if (this.tables.length === 0)
+                throw new Error("Expected a table initialization");
+            for (const elem of repr.section9.content) {
+                //using passive tables
+                const offset = evalConstExpr(elem.offset).u32;
+                if (offset + elem.funcrefs.length > this.tables[0].length)
+                    throw new Error("Out of Bounds element initialization");
+                for (let i = 0; i < elem.funcrefs.length; ++i)
+                    this.tables[0].elements[i + offset] = elem.funcrefs[i];
+            }
+        }
+        if (repr.has_section(11)) {
+            //data
+            for (const data of repr.section11.content) {
+                const offset = evalConstExpr(data.offset).u32;
+                if (offset + data.data.length > this.memory.length)
+                    throw new Error("Out of bounds data initialization");
+                this.memory.buffer.set(data.data, offset);
+            }
+        }
+
+        if (repr.has_section(8)) {
+            //start
+            //this.start = repr.section8.index;
+            this.run(repr.section8.index, []);
+        }
     }
 
     initializeMemory(start : number, end : number) {
@@ -112,20 +189,19 @@ export class Program {
     }
 
     initializeTables(tableDesc : Array<WASMSection4Content>) : void {
-        for (const desc of tableDesc) {
-            this.tables.push(new WASMTable({ initial: desc.limit.min, maximum: desc.limit.max }));
-        }
+        for (const desc of tableDesc)
+            this.tables.push(new WASMTable({ initial: desc.limit.min, maximum: desc.limit.max }))
     }
 
     run(entry : number, args : Array<WASMValue>) : bigint | number | undefined {
-        if (entry < 0 || entry >= this.funcPtrs.length + this.importFuncCount)
+        if (entry < 0 || entry >= this.funcCount + this.importFuncCount)
             throw new Error("Invalid function index");
         if (entry < this.importFuncCount) {
             console.warn("Attempting to start with an imported function: returning 0 for now");
             return 0; //import function call?
         }
         const reader = new FixedLengthReader(this.code);
-        reader.at = this.funcPtrs[entry - this.importFuncCount];
+        reader.at = readFuncPtr(reader, entry - this.importFuncCount);
         const valueStack : Array<WASMValue> = [];
         const callStack : Array<StackFrame> = [];
         let argC = reader.read_u32();
@@ -145,7 +221,6 @@ export class Program {
             switch (instr) {
                 case WASMOPCode.op_unreachable:
                     throw new Error("Unreachable");
-                    break;
                 case WASMOPCode.op_drop:
                     popSafe(valueStack);
                     break;
@@ -268,13 +343,13 @@ export class Program {
                     }
                     const frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = this.funcPtrs[funcIdx - this.importFuncCount];
+                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
                     const argC = reader.read_u32();
                     const localC = reader.read_u32();
                     locals = new Array(argC + localC);
-                    for (let i = argC; i > 0; --i) {
+                    for (let i = argC; i > 0; --i)
                         locals[i - 1] = popSafe(valueStack);
-                    }
+
                     break;
                 }
                 case WASMOPCode.op_local_get: {
@@ -324,6 +399,6 @@ export class Program {
                 }
             }
         }
-        return 0;
+        //throw new Error(`Unreachable`);
     }
 }
