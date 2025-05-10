@@ -4,21 +4,26 @@ exports.InstrNode = exports.WASMValue = void 0;
 var OpCode_1 = require("./OpCode");
 var types_1 = require("./types");
 var Conversion_1 = require("../helpers/Conversion");
+//nil represents an uninitialized wasmvalue
+//maybe implement typechecking under the hood just in case
 var WASMValue = /** @class */ (function () {
     function WASMValue() {
-        this.type = types_1.WASMValueType.i32;
+        this.type = types_1.WASMValueType.nil;
         this.value = 0;
         this.bigval = BigInt(0);
     }
     WASMValue.prototype.set = function (v) {
         if (this.type !== v.type)
-            throw new Error("Internal type mismatch: expected ".concat(this.type, ", got ").concat(v.type));
+            throw new Error("Internal type mismatch: expected ".concat((0, types_1.typeToString)(this.type), ", got ").concat((0, types_1.typeToString)(v.type)));
         this.value = v.value;
         this.bigval = v.bigval;
     };
     Object.defineProperty(WASMValue.prototype, "u32", {
         get: function () {
             return this.value >>> 0;
+        },
+        set: function (v) {
+            this.value = v >>> 0;
         },
         enumerable: false,
         configurable: true
@@ -27,12 +32,18 @@ var WASMValue = /** @class */ (function () {
         get: function () {
             return this.value >> 0;
         },
+        set: function (v) {
+            this.value = v >> 0;
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(WASMValue.prototype, "f32", {
         get: function () {
             return Math.fround(this.value);
+        },
+        set: function (v) {
+            this.value = Math.fround(v);
         },
         enumerable: false,
         configurable: true
@@ -41,12 +52,18 @@ var WASMValue = /** @class */ (function () {
         get: function () {
             return this.bigval;
         },
+        set: function (v) {
+            this.bigval = v;
+        },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(WASMValue.prototype, "f64", {
         get: function () {
             return this.value;
+        },
+        set: function (v) {
+            this.value = v;
         },
         enumerable: false,
         configurable: true

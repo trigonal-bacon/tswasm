@@ -1,5 +1,5 @@
 import { WASMOPCode } from "./OpCode";
-import { WASMValueType } from "./types";
+import { typeToString, WASMValueType } from "./types";
 
 import {
     CONVERSION_UINT8, CONVERSION_INT8, 
@@ -8,13 +8,16 @@ import {
     CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64
 } from "../helpers/Conversion";
 
+//nil represents an uninitialized wasmvalue
+//maybe implement typechecking under the hood just in case
+
 export class WASMValue {
-    type : WASMValueType = WASMValueType.i32;
+    type : WASMValueType = WASMValueType.nil;
     value : number = 0;
     bigval : bigint = BigInt(0);
     set(v : WASMValue) {
         if (this.type !== v.type)
-            throw new Error(`Internal type mismatch: expected ${this.type}, got ${v.type}`);
+            throw new Error(`Internal type mismatch: expected ${typeToString(this.type)}, got ${typeToString(v.type)}`);
         this.value = v.value;
         this.bigval = v.bigval;
     }
@@ -32,6 +35,21 @@ export class WASMValue {
     }
     get f64() : number {
         return this.value;
+    }
+    set u32(v : number) {
+        this.value = v >>> 0;
+    }
+    set i32(v : number) {
+        this.value = v >> 0;
+    }
+    set f32(v : number) {
+        this.value = Math.fround(v);
+    }
+    set i64(v : bigint) {
+        this.bigval = v;
+    }
+    set f64(v : number) {
+        this.value = v;
     }
     get numeric() : number | bigint {
         switch (this.type) {
