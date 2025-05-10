@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var PAGE_SIZE = 65536;
 var WASMMemory = /** @class */ (function () {
     function WASMMemory(options) {
-        this.buffer = new Uint8Array(0);
+        this.buffer = new ArrayBuffer();
+        this._buffer = new Uint8Array(this.buffer);
         this.init = 0;
         this.max = 0;
         if (typeof options !== "object")
@@ -15,7 +16,8 @@ var WASMMemory = /** @class */ (function () {
         if (this.max < this.init)
             throw new Error("Memory limit must be greater than initial");
         this.max = Math.max(this.max, this.init);
-        this.buffer = new Uint8Array(this.init * PAGE_SIZE);
+        this.buffer = new ArrayBuffer(this.init * PAGE_SIZE);
+        this._buffer = new Uint8Array(this.buffer);
     }
     Object.defineProperty(WASMMemory.prototype, "length", {
         get: function () {

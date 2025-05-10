@@ -28,7 +28,9 @@ function writeWASMValue(writer, value) {
 function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
     for (var _i = 0, instrs_1 = instrs; _i < instrs_1.length; _i++) {
         var instr = instrs_1[_i];
-        writer.write_u8(instr.instr);
+        if (instr.instr === OpCode_1.WASMOPCode.op_end)
+            break;
+        writer.write_instr(instr.instr);
         switch (instr.instr) {
             case OpCode_1.WASMOPCode.op_block: {
                 blockPtrStack.push([]);
@@ -114,7 +116,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             }
             case OpCode_1.WASMOPCode.op_memory_size:
             case OpCode_1.WASMOPCode.op_memory_grow:
-                writer.write_u8(instr.immediates[0].u32);
+            case OpCode_1.WASMOPCode.op_memory_copy:
                 break;
             case OpCode_1.WASMOPCode.op_i32_load:
             case OpCode_1.WASMOPCode.op_i32_load8_s:
@@ -139,7 +141,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
             case OpCode_1.WASMOPCode.op_i64_store32:
             case OpCode_1.WASMOPCode.op_f32_store:
             case OpCode_1.WASMOPCode.op_f64_store:
-                writer.write_u32(instr.immediates[0].u32);
+                //error did not write alignmeny at arg[0]
                 writer.write_u32(instr.immediates[1].u32);
                 break;
             case OpCode_1.WASMOPCode.op_i32_const:

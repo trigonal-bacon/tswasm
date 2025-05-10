@@ -14,7 +14,7 @@ import {
     WASMSection9Content,
     WASMSection6Content, 
 } from "../spec/sections";
-import { WASMGlobalType, WASMValueType } from "../spec/types";
+import { typeToString, WASMGlobalType, WASMValueType } from "../spec/types";
 
 function __typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : void {
     if (check === WASMValueType.nil) {
@@ -25,7 +25,7 @@ function __typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : v
     if (top === undefined)
         throw new Error(`Impossible`);
     if (top !== check)
-        throw new Error(`Type mismatch: expected ${check}, got ${top}`);
+        throw new Error(`Type mismatch: expected ${typeToString(check)}, got ${typeToString(top)}`);
 }
 
 function __typeCheckResult(stack : Array<WASMValueType>, check : WASMValueType) : void {
@@ -39,7 +39,7 @@ function __typeCheckResult(stack : Array<WASMValueType>, check : WASMValueType) 
     if (top === undefined)
         throw new Error(`Impossible`);
     if (top !== check)
-        throw new Error(`Type mismatch: expected ${check}, got ${top}`);
+        throw new Error(`Type mismatch: expected ${typeToString(check)}, got ${typeToString(top)}`);
 }
 
 export default class WASMRepr {
@@ -71,7 +71,7 @@ export default class WASMRepr {
     validate() {
         if (this.has_section(12) && this.has_section(11)) {
             if (this.section12.dataCount !== this.section11.content.length) {
-                throw new Error("Invalid data count " + this.section12.dataCount + " | " + this.section11.content.length);
+                throw new Error(`Invalid data count, expected ${this.section12.dataCount}, got ${this.section11.content.length}`);
             }
         }
         if (this.has_section(3)) {
@@ -79,7 +79,7 @@ export default class WASMRepr {
                 throw new Error("Missing functype section");
             for (let i = 0; i < this.funcTypes.length; ++i) {
                 if (this.funcTypes[i] >= this.section1.content.length)
-                    throw new Error("Invalid functype for $func" + i + " of " + this.funcTypes[i]);
+                    throw new Error(`Invalid functype ${this.funcTypes[i]} for $func${i}`);
             }
         }
         if (this.has_section(10)) {
@@ -147,7 +147,7 @@ export default class WASMRepr {
         result_type : WASMValueType,
         func_return : WASMValueType
     ) : void {
-        const type_stack : Array<WASMValueType> = [];
+        const typeStack : Array<WASMValueType> = [];
         const num_locals = locals.length;
         const num_globals = this.globalTypes.length;
         const num_funcs = this.funcTypes.length;
@@ -157,30 +157,30 @@ export default class WASMRepr {
                 case WASMOPCode.op_local_get:
                     if (args[0].u32 >= num_locals)
                         throw new Error(`Local index ${args[0].u32} out of bounds`);
-                    type_stack.push(locals[args[0].u32]);
+                    typeStack.push(locals[args[0].u32]);
                     break;
                 case WASMOPCode.op_local_set:
                     if (args[0].u32 >= num_locals)
                         throw new Error(`Local index ${args[0].u32} out of bounds`);
-                    __typeCheckArg(type_stack, locals[args[0].u32]);
+                    __typeCheckArg(typeStack, locals[args[0].u32]);
                     break;
                 case WASMOPCode.op_local_tee:
                     if (args[0].u32 >= num_locals)
                         throw new Error(`Local index ${args[0].u32} out of bounds`);
-                    __typeCheckArg(type_stack, locals[args[0].u32]);
-                    type_stack.push(locals[args[0].u32]);
+                    __typeCheckArg(typeStack, locals[args[0].u32]);
+                    typeStack.push(locals[args[0].u32]);
                     break;
                 case WASMOPCode.op_global_get:
                     if (args[0].u32 >= num_globals) 
                         throw new Error(`Global index ${args[0].u32} out of bounds`);
-                    type_stack.push(this.globalTypes[args[0].u32].type);
+                    typeStack.push(this.globalTypes[args[0].u32].type);
                     break;
                 case WASMOPCode.op_global_set:
                     if (args[0].u32 >= num_globals) 
                         throw new Error(`Global index ${args[0].u32} out of bounds`);
                     if (!this.globalTypes[args[0].u32].mutable)
                         throw new Error(`Attempt to mutate immutable global ${args[0].u32}`);
-                    __typeCheckArg(type_stack, this.globalTypes[args[0].u32].type);
+                    __typeCheckArg(typeStack, this.globalTypes[args[0].u32].type);
                     break;
                 case WASMOPCode.op_call: {
                     const idx = args[0].u32;
@@ -188,9 +188,9 @@ export default class WASMRepr {
                         throw new Error(`Function index ${idx} out of bounds`);
                     const funcType = this.section1.content[this.funcTypes[idx]];
                     for (let i = funcType.args.length; i > 0; --i)
-                        __typeCheckArg(type_stack, funcType.args[i - 1]);
+                        __typeCheckArg(typeStack, funcType.args[i - 1]);
                     if (funcType.ret !== WASMValueType.nil)
-                        type_stack.push(funcType.ret);
+                        typeStack.push(funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
@@ -199,86 +199,89 @@ export default class WASMRepr {
                     const typeidx = args[0].u32;
                     if (typeidx >= this.section1.content.length)
                         throw new Error(`Type index ${typeidx} out of bounds`);
-                    __typeCheckArg(type_stack, WASMValueType.i32);
+                    __typeCheckArg(typeStack, WASMValueType.i32);
                     const funcType = this.section1.content[typeidx];
                     for (let i = funcType.args.length; i > 0; --i)
-                        __typeCheckArg(type_stack, funcType.args[i - 1]);
+                        __typeCheckArg(typeStack, funcType.args[i - 1]);
                     if (funcType.ret !== WASMValueType.nil)
-                        type_stack.push(funcType.ret);
+                        typeStack.push(funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_br_if:
-                    __typeCheckArg(type_stack, WASMValueType.i32);
+                    __typeCheckArg(typeStack, WASMValueType.i32);
                 case WASMOPCode.op_br:
                     if (args[0].u32 >= block_types.length)
                         throw new Error(`Invalid block depth ${args[0].u32}`);
-                    __typeCheckResult(type_stack, block_types[block_types.length - 1 - args[0].u32]);
+                    __typeCheckResult(typeStack, block_types[block_types.length - 1 - args[0].u32]);
                     if (instr.instr === WASMOPCode.op_br) return;
                     break;
                 case WASMOPCode.op_br_table:
                     //error need to check for each individual
-                    __typeCheckArg(type_stack, WASMValueType.i32);
-                    __typeCheckResult(type_stack, result_type);
+                    __typeCheckArg(typeStack, WASMValueType.i32);
+                    __typeCheckResult(typeStack, result_type);
+                    for (let i = 1; i < args.length; ++i) 
+                        __typeCheckResult(typeStack, block_types[block_types.length - 1 - args[i].u32]);
                     break;
                 case WASMOPCode.op_if:
                     block_types.push(args[0].u32);
-                    __typeCheckArg(type_stack, WASMValueType.i32);
+                    __typeCheckArg(typeStack, WASMValueType.i32);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
                     if (instr.hasElse)
                         this.__validateCodeBlockRecursive(instr.child2, locals, block_types, args[0].u32, func_return);
                     if (args[0].u32 !== WASMValueType.nil)
-                        type_stack.push(args[0].u32);
+                        typeStack.push(args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_drop:
-                    if (type_stack.length === 0)
+                    if (typeStack.length === 0)
                         throw new Error(`Expected at least 1 value on stack for drop, got 0`);
-                    type_stack.pop();
+                    typeStack.pop();
                     break;
                 case WASMOPCode.op_loop:
                     block_types.push(WASMValueType.nil);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) type_stack.push(args[0].u32);
+                    if (args[0].u32 !== WASMValueType.nil) typeStack.push(args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_block:
                     block_types.push(args[0].u32);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) type_stack.push(args[0].u32);
+                    if (args[0].u32 !== WASMValueType.nil) typeStack.push(args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_unreachable:
                     //silent return on unreachable, no need to deal with anything past
+                    //ignores typechecking in block past the unreachable
                     return;
                 case WASMOPCode.op_return:
-                    __typeCheckResult(type_stack, func_return);
+                    __typeCheckResult(typeStack, func_return);
                     return;
                 case WASMOPCode.op_select: {
-                    __typeCheckArg(type_stack, WASMValueType.i32);
-                    if (type_stack.length < 2)
-                        throw new Error(`Expected at least 2 values on stack for select, got ${type_stack.length}`);
-                    const t1 = type_stack.pop();
-                    const t2 = type_stack.pop();
+                    __typeCheckArg(typeStack, WASMValueType.i32);
+                    if (typeStack.length < 2)
+                        throw new Error(`Expected at least 2 values on stack for select, got ${typeStack.length}`);
+                    const t1 = typeStack.pop();
+                    const t2 = typeStack.pop();
                     if (t1 !== t2 || t1 == undefined)
                         throw new Error(`Select operands ${t1} and ${t2} do not match`);
-                    type_stack.push(t1);
+                    typeStack.push(t1);
                     break;
                 }
                 default: {
                     const instrDef = WASMOPDefs[instr.instr];
-                    if (type_stack.length < instrDef.args.length)
-                        throw new Error(`Expected at least ${instrDef.args.length} values for ${instr.instr}, got ${type_stack.length}`);
+                    if (typeStack.length < instrDef.args.length)
+                        throw new Error(`Expected at least ${instrDef.args.length} values for ${instr.instr}, got ${typeStack.length}`);
                     for (let i = instrDef.args.length; i > 0; --i)
-                        __typeCheckArg(type_stack, instrDef.args[i - 1])
+                        __typeCheckArg(typeStack, instrDef.args[i - 1])
 
                     if (instrDef.ret !== WASMValueType.nil)
-                        type_stack.push(instrDef.ret);
+                        typeStack.push(instrDef.ret);
                     break;
                 }
 
             }
         }
-        return;
+        __typeCheckResult(typeStack, result_type);
     }
     
     validateCodeBlock(code : Array<InstrNode>, locals : Array<WASMValueType>, result_type : WASMValueType) : void {

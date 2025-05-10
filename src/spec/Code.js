@@ -3,14 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.InstrNode = exports.WASMValue = void 0;
 var OpCode_1 = require("./OpCode");
 var types_1 = require("./types");
-var CONVERSION_BUFFER = new ArrayBuffer(8);
-var CONVERSION_UINT8 = new Uint8Array(CONVERSION_BUFFER);
-var CONVERSION_UINT32 = new Uint32Array(CONVERSION_BUFFER);
-var CONVERSION_INT32 = new Int32Array(CONVERSION_BUFFER);
-var CONVERSION_FLOAT32 = new Float32Array(CONVERSION_BUFFER);
-var CONVERSION_UINT64 = new BigUint64Array(CONVERSION_BUFFER);
-var CONVERSION_INT64 = new BigInt64Array(CONVERSION_BUFFER);
-var CONVERSION_FLOAT64 = new Float64Array(CONVERSION_BUFFER);
+var Conversion_1 = require("../helpers/Conversion");
 var WASMValue = /** @class */ (function () {
     function WASMValue() {
         this.type = types_1.WASMValueType.i32;
@@ -25,21 +18,21 @@ var WASMValue = /** @class */ (function () {
     };
     Object.defineProperty(WASMValue.prototype, "u32", {
         get: function () {
-            return this.value;
+            return this.value >>> 0;
         },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(WASMValue.prototype, "i32", {
         get: function () {
-            return this.value;
+            return this.value >> 0;
         },
         enumerable: false,
         configurable: true
     });
     Object.defineProperty(WASMValue.prototype, "f32", {
         get: function () {
-            return this.value;
+            return Math.fround(this.value);
         },
         enumerable: false,
         configurable: true
@@ -72,37 +65,33 @@ var WASMValue = /** @class */ (function () {
     });
     WASMValue.createU32Literal = function (u32) {
         var ret = new WASMValue();
-        CONVERSION_UINT32[0] = u32;
         ret.type = types_1.WASMValueType.u32;
-        ret.value = CONVERSION_UINT32[0];
+        ret.value = u32 >>> 0;
         return ret;
     };
     WASMValue.createI32Literal = function (i32) {
         var ret = new WASMValue();
-        CONVERSION_INT32[0] = i32;
         ret.type = types_1.WASMValueType.i32;
-        ret.value = CONVERSION_INT32[0];
+        ret.value = i32 | 0;
         return ret;
     };
     WASMValue.createF32Literal = function (f32) {
         var ret = new WASMValue();
-        CONVERSION_FLOAT32[0] = f32;
         ret.type = types_1.WASMValueType.f32;
-        ret.value = CONVERSION_FLOAT32[0];
+        ret.value = Math.fround(f32);
         return ret;
     };
     WASMValue.createI64Literal = function (i64) {
         var ret = new WASMValue();
-        CONVERSION_INT64[0] = i64;
+        Conversion_1.CONVERSION_INT64[0] = i64;
         ret.type = types_1.WASMValueType.i64;
-        ret.bigval = CONVERSION_INT64[0];
+        ret.bigval = Conversion_1.CONVERSION_INT64[0];
         return ret;
     };
     WASMValue.createF64Literal = function (f64) {
         var ret = new WASMValue();
-        CONVERSION_FLOAT64[0] = f64;
         ret.type = types_1.WASMValueType.f64;
-        ret.value = CONVERSION_FLOAT64[0];
+        ret.value = f64;
         return ret;
     };
     return WASMValue;

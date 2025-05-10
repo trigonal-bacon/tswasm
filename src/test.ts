@@ -3,7 +3,7 @@ import { WASMExternalGlobal } from "./interface/Global";
 
 import * as fs from "fs";
 
-const buf = fs.readFileSync("test/import.wasm");
+const buf = fs.readFileSync("emscripten/a.out.wasm");
 
 const buf2 = new Uint8Array(buf.length);
 for (let i = 0; i < buf.length; ++i) buf2[i] = buf[i];
@@ -18,8 +18,10 @@ WebAssembly.instantiate(bin, {
         "g" : glob
     },
     "foo": {
-        "bar": console.log
+        "bar": console.log,
+        "baz": console.log,
+        "bax": console.log
     }
 }).then(obj => {
-    obj.instance.run(0, []);
+    //console.log(obj.instance.exports.addTwo(1.1,1.3,25.34,"hi"));
 });

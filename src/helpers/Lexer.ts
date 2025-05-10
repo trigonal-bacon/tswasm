@@ -1,11 +1,9 @@
-const CONVERSION_BUFFER = new ArrayBuffer(8);
-const CONVERSION_UINT8 = new Uint8Array(CONVERSION_BUFFER);
-const CONVERSION_UINT32 = new Uint32Array(CONVERSION_BUFFER);
-const CONVERSION_INT32 = new Int32Array(CONVERSION_BUFFER);
-const CONVERSION_FLOAT32 = new Float32Array(CONVERSION_BUFFER);
-const CONVERSION_UINT64 = new BigUint64Array(CONVERSION_BUFFER);
-const CONVERSION_INT64 = new BigInt64Array(CONVERSION_BUFFER);
-const CONVERSION_FLOAT64 = new Float64Array(CONVERSION_BUFFER);
+import {
+    CONVERSION_UINT8, CONVERSION_INT8, 
+    CONVERSION_UINT16, CONVERSION_INT16,
+    CONVERSION_UINT32, CONVERSION_INT32, CONVERSION_FLOAT32,
+    CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64
+} from "../helpers/Conversion";
 
 const TEXT_DECODER = new TextDecoder();
 
@@ -123,6 +121,13 @@ export class FixedLengthWriter {
         this.buf[this.at++] = CONVERSION_UINT8[0];
     }
 
+    write_instr(instr : number) : void {
+        this.write_u8(instr);
+        if ((instr & 0xff) === 0xfc)
+            this.write_u8(instr >> 8);
+        
+    }
+
     retroactive_write_u32(u32 : number, ptr : number) {
         CONVERSION_UINT32[0] = u32;
         for (let i = 0; i < 4; ++i) this.buf[ptr + i] = CONVERSION_UINT8[i];
@@ -162,6 +167,12 @@ export class FixedLengthReader {
 
     read_u8() : number {
         return this.buf[this.at++];
+    }
+
+    read_instr() {
+        const code = this.read_u8();
+        if (code === 0xfc) return (this.read_u8() << 8) | code;
+        return code;
     }
 
     read_u32() : number {

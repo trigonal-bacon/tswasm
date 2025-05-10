@@ -1,14 +1,12 @@
 import { WASMOPCode } from "./OpCode";
 import { WASMValueType } from "./types";
 
-const CONVERSION_BUFFER = new ArrayBuffer(8);
-const CONVERSION_UINT8 = new Uint8Array(CONVERSION_BUFFER);
-const CONVERSION_UINT32 = new Uint32Array(CONVERSION_BUFFER);
-const CONVERSION_INT32 = new Int32Array(CONVERSION_BUFFER);
-const CONVERSION_FLOAT32 = new Float32Array(CONVERSION_BUFFER);
-const CONVERSION_UINT64 = new BigUint64Array(CONVERSION_BUFFER);
-const CONVERSION_INT64 = new BigInt64Array(CONVERSION_BUFFER);
-const CONVERSION_FLOAT64 = new Float64Array(CONVERSION_BUFFER);
+import {
+    CONVERSION_UINT8, CONVERSION_INT8, 
+    CONVERSION_UINT16, CONVERSION_INT16,
+    CONVERSION_UINT32, CONVERSION_INT32, CONVERSION_FLOAT32,
+    CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64
+} from "../helpers/Conversion";
 
 export class WASMValue {
     type : WASMValueType = WASMValueType.i32;
@@ -21,13 +19,13 @@ export class WASMValue {
         this.bigval = v.bigval;
     }
     get u32() : number {
-        return this.value;
+        return this.value >>> 0;
     }
     get i32() : number {
-        return this.value;
+        return this.value >> 0;
     }
     get f32() : number {
-        return this.value;
+        return Math.fround(this.value);
     }
     get i64() : bigint {
         return this.bigval;
@@ -45,23 +43,20 @@ export class WASMValue {
     }
     static createU32Literal(u32 : number) : WASMValue {
         const ret = new WASMValue();
-        CONVERSION_UINT32[0] = u32;
         ret.type = WASMValueType.u32;
-        ret.value = CONVERSION_UINT32[0];
+        ret.value = u32 >>> 0;
         return ret;
     }
     static createI32Literal(i32 : number) : WASMValue {
         const ret = new WASMValue();
-        CONVERSION_INT32[0] = i32;
         ret.type = WASMValueType.i32;
-        ret.value = CONVERSION_INT32[0];
+        ret.value = i32|0;
         return ret;
     }
     static createF32Literal(f32 : number) : WASMValue {
         const ret = new WASMValue();
-        CONVERSION_FLOAT32[0] = f32;
         ret.type = WASMValueType.f32;
-        ret.value = CONVERSION_FLOAT32[0];
+        ret.value = Math.fround(f32);
         return ret;
     }
     static createI64Literal(i64 : bigint) : WASMValue {
@@ -73,9 +68,8 @@ export class WASMValue {
     }
     static createF64Literal(f64 : number) : WASMValue {
         const ret = new WASMValue();
-        CONVERSION_FLOAT64[0] = f64;
         ret.type = WASMValueType.f64;
-        ret.value = CONVERSION_FLOAT64[0];
+        ret.value = f64;
         return ret;
     }
 }

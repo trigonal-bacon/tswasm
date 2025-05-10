@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var index_1 = require("./index");
 var Global_1 = require("./interface/Global");
 var fs = require("fs");
-var buf = fs.readFileSync("test/import.wasm");
+var buf = fs.readFileSync("emscripten/a.out.wasm");
 var buf2 = new Uint8Array(buf.length);
 for (var i = 0; i < buf.length; ++i)
     buf2[i] = buf[i];
@@ -15,27 +15,10 @@ index_1.WebAssembly.instantiate(bin, {
         "g": glob
     },
     "foo": {
-        "bar": console.log
+        "bar": console.log,
+        "baz": console.log,
+        "bax": console.log
     }
 }).then(function (obj) {
-    obj.instance.run(0, []);
-    console.log(obj.instance.exports);
+    //console.log(obj.instance.exports.addTwo(1.1,1.3,25.34,"hi"));
 });
-/*
-const A = new WASMModule(bin);
-//console.log(p.code);
-console.log(glob.value);
-const prog = new Program(A, {
-    "a": {
-    },
-    "env": {
-        "g" : glob
-    },
-    "foo": {
-        "bar": console.log
-    }
-})
-prog.run(0, []);
-//console.log(prog.run(2, [WASMValue.createF32Literal(-138)]));
-console.log(glob.value);
-*/ 

@@ -51,12 +51,10 @@ var WASMParser = /** @class */ (function () {
         lexer.read_float64(); //magic header
         while (lexer.has()) {
             var section = lexer.read_uint8();
-            console.log("Parsing section " + section);
             if (section > 12)
                 throw new Error("Trying to parse invalid section ".concat(section));
-            if (repr.has_section(section)) {
+            if (repr.has_section(section))
                 throw new Error("Section ".concat(section, " already exists"));
-            }
             repr.sectionLengths[section] = lexer.read_uint32();
             var anchor = lexer.at;
             switch (section) {
@@ -101,14 +99,11 @@ var WASMParser = /** @class */ (function () {
                     break;
                 default: break;
             }
-            if (lexer.at !== anchor + repr.sectionLengths[section]) {
-                console.log(lexer.at);
+            if (lexer.at !== anchor + repr.sectionLengths[section])
                 throw new Error("Section ".concat(section, " has malformed length ").concat(repr.sectionLengths[section]));
-            }
         }
         if (lexer.at !== lexer.buf.length)
             throw new Error("Prematurely finished parsing the binary");
-        console.log("Parse finished");
         repr.validate();
         return;
     };
@@ -197,6 +192,7 @@ var WASMParser = /** @class */ (function () {
             var kind = readRefType(lexer);
             content.refKind = kind;
             content.limit = readLimit(lexer);
+            repr.section4.content.push(content);
         }
         repr.tableCount += sectionLen;
     };
@@ -300,13 +296,16 @@ var WASMParser = /** @class */ (function () {
         repr.section12.dataCount = lexer.read_uint32();
     };
     WASMParser.prototype.parseCodeBlock = function () {
-        //console.log(this.recursionDepth, this.lexer.at);
         var lexer = this.lexer;
         var instrArray = [];
         while (true) {
             var instr_op = lexer.read_uint8();
             if (instr_op === OpCode_1.WASMOPCode.op_end || instr_op === OpCode_1.WASMOPCode.op_else)
                 break;
+            if (instr_op === 0xFC) {
+                console.error("Multibyte instructions not supported and may be ignored in interpretation");
+                instr_op |= lexer.read_uint8() << 8;
+            }
             var currInstr = new Code_1.InstrNode();
             instrArray.push(currInstr);
             currInstr.instr = instr_op;
@@ -332,8 +331,8 @@ var WASMParser = /** @class */ (function () {
                 case OpCode_1.WASMOPCode.op_call_indirect: {
                     var index = lexer.read_uint32();
                     currInstr.immediates.push(Code_1.WASMValue.createU32Literal(index));
-                    if (lexer.read_uint8() != 0x00)
-                        throw new Error("call_indirect typeuse not supported");
+                    if (lexer.read_uint8() !== 0x00)
+                        console.error("Warning: call_indirect typeuse not supported is ignored");
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_br_table: {
@@ -347,6 +346,8 @@ var WASMParser = /** @class */ (function () {
                 }
                 case OpCode_1.WASMOPCode.op_memory_size:
                 case OpCode_1.WASMOPCode.op_memory_grow:
+                case OpCode_1.WASMOPCode.op_memory_copy:
+                case OpCode_1.WASMOPCode.op_memory_fill:
                     currInstr.immediates.push(Code_1.WASMValue.createU32Literal(lexer.read_uint8()));
                     break;
                 case OpCode_1.WASMOPCode.op_i32_load:

@@ -153,10 +153,10 @@ var WASMOPCode;
     WASMOPCode[WASMOPCode["op_f64_max"] = 165] = "op_f64_max";
     WASMOPCode[WASMOPCode["op_f64_copysign"] = 166] = "op_f64_copysign";
     WASMOPCode[WASMOPCode["op_i32_wrap_i64"] = 167] = "op_i32_wrap_i64";
-    WASMOPCode[WASMOPCode["op_i32_wrap_f32_s"] = 168] = "op_i32_wrap_f32_s";
-    WASMOPCode[WASMOPCode["op_i32_wrap_f32_u"] = 169] = "op_i32_wrap_f32_u";
-    WASMOPCode[WASMOPCode["op_i32_wrap_f64_s"] = 170] = "op_i32_wrap_f64_s";
-    WASMOPCode[WASMOPCode["op_i32_wrap_f64_u"] = 171] = "op_i32_wrap_f64_u";
+    WASMOPCode[WASMOPCode["op_i32_trunc_f32_s"] = 168] = "op_i32_trunc_f32_s";
+    WASMOPCode[WASMOPCode["op_i32_trunc_f32_u"] = 169] = "op_i32_trunc_f32_u";
+    WASMOPCode[WASMOPCode["op_i32_trunc_f64_s"] = 170] = "op_i32_trunc_f64_s";
+    WASMOPCode[WASMOPCode["op_i32_trunc_f64_u"] = 171] = "op_i32_trunc_f64_u";
     WASMOPCode[WASMOPCode["op_i64_extend_i32_s"] = 172] = "op_i64_extend_i32_s";
     WASMOPCode[WASMOPCode["op_i64_extend_i32_u"] = 173] = "op_i64_extend_i32_u";
     WASMOPCode[WASMOPCode["op_i64_trunc_f32_s"] = 174] = "op_i64_trunc_f32_s";
@@ -177,6 +177,13 @@ var WASMOPCode;
     WASMOPCode[WASMOPCode["op_i64_reinterpret_f64"] = 189] = "op_i64_reinterpret_f64";
     WASMOPCode[WASMOPCode["op_f32_reinterpret_i32"] = 190] = "op_f32_reinterpret_i32";
     WASMOPCode[WASMOPCode["op_f64_reinterpret_i64"] = 191] = "op_f64_reinterpret_i64";
+    WASMOPCode[WASMOPCode["op_i32_extend8_s"] = 192] = "op_i32_extend8_s";
+    WASMOPCode[WASMOPCode["op_i32_extend16_s"] = 193] = "op_i32_extend16_s";
+    WASMOPCode[WASMOPCode["op_i64_extend8_s"] = 194] = "op_i64_extend8_s";
+    WASMOPCode[WASMOPCode["op_i64_extend16_s"] = 195] = "op_i64_extend16_s";
+    WASMOPCode[WASMOPCode["op_i64_extend32_s"] = 196] = "op_i64_extend32_s";
+    WASMOPCode[WASMOPCode["op_memory_copy"] = 2812] = "op_memory_copy";
+    WASMOPCode[WASMOPCode["op_memory_fill"] = 3068] = "op_memory_fill";
 })(WASMOPCode || (exports.WASMOPCode = WASMOPCode = {}));
 ;
 var WASMOPDef = /** @class */ (function () {
@@ -339,10 +346,10 @@ exports.WASMOPDefs = (_a = {},
     _a[WASMOPCode.op_f64_max] = new WASMOPDef(WASMOPCode.op_f64_max, [types_1.WASMValueType.f64, types_1.WASMValueType.f64], types_1.WASMValueType.f64),
     _a[WASMOPCode.op_f64_copysign] = new WASMOPDef(WASMOPCode.op_f64_copysign, [types_1.WASMValueType.f64, types_1.WASMValueType.f64], types_1.WASMValueType.f64),
     _a[WASMOPCode.op_i32_wrap_i64] = new WASMOPDef(WASMOPCode.op_i32_wrap_i64, [types_1.WASMValueType.i64], types_1.WASMValueType.i32),
-    _a[WASMOPCode.op_i32_wrap_f32_s] = new WASMOPDef(WASMOPCode.op_i32_wrap_f32_s, [types_1.WASMValueType.f32], types_1.WASMValueType.i32),
-    _a[WASMOPCode.op_i32_wrap_f32_u] = new WASMOPDef(WASMOPCode.op_i32_wrap_f32_u, [types_1.WASMValueType.f32], types_1.WASMValueType.i32),
-    _a[WASMOPCode.op_i32_wrap_f64_s] = new WASMOPDef(WASMOPCode.op_i32_wrap_f64_s, [types_1.WASMValueType.f64], types_1.WASMValueType.i32),
-    _a[WASMOPCode.op_i32_wrap_f64_u] = new WASMOPDef(WASMOPCode.op_i32_wrap_f64_u, [types_1.WASMValueType.f64], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i32_trunc_f32_s] = new WASMOPDef(WASMOPCode.op_i32_trunc_f32_s, [types_1.WASMValueType.f32], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i32_trunc_f32_u] = new WASMOPDef(WASMOPCode.op_i32_trunc_f32_u, [types_1.WASMValueType.f32], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i32_trunc_f64_s] = new WASMOPDef(WASMOPCode.op_i32_trunc_f64_s, [types_1.WASMValueType.f64], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i32_trunc_f64_u] = new WASMOPDef(WASMOPCode.op_i32_trunc_f64_u, [types_1.WASMValueType.f64], types_1.WASMValueType.i32),
     _a[WASMOPCode.op_i64_extend_i32_s] = new WASMOPDef(WASMOPCode.op_i64_extend_i32_s, [types_1.WASMValueType.i32], types_1.WASMValueType.i64),
     _a[WASMOPCode.op_i64_extend_i32_u] = new WASMOPDef(WASMOPCode.op_i64_extend_i32_u, [types_1.WASMValueType.i32], types_1.WASMValueType.i64),
     _a[WASMOPCode.op_i64_trunc_f32_s] = new WASMOPDef(WASMOPCode.op_i64_trunc_f32_s, [types_1.WASMValueType.f32], types_1.WASMValueType.i64),
@@ -363,4 +370,11 @@ exports.WASMOPDefs = (_a = {},
     _a[WASMOPCode.op_i64_reinterpret_f64] = new WASMOPDef(WASMOPCode.op_i64_reinterpret_f64, [types_1.WASMValueType.f64], types_1.WASMValueType.i64),
     _a[WASMOPCode.op_f32_reinterpret_i32] = new WASMOPDef(WASMOPCode.op_f32_reinterpret_i32, [types_1.WASMValueType.i32], types_1.WASMValueType.f32),
     _a[WASMOPCode.op_f64_reinterpret_i64] = new WASMOPDef(WASMOPCode.op_f64_reinterpret_i64, [types_1.WASMValueType.i64], types_1.WASMValueType.f64),
+    _a[WASMOPCode.op_i32_extend8_s] = new WASMOPDef(WASMOPCode.op_i32_extend8_s, [types_1.WASMValueType.i32], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i32_extend16_s] = new WASMOPDef(WASMOPCode.op_i32_extend16_s, [types_1.WASMValueType.i32], types_1.WASMValueType.i32),
+    _a[WASMOPCode.op_i64_extend8_s] = new WASMOPDef(WASMOPCode.op_i64_extend8_s, [types_1.WASMValueType.i64], types_1.WASMValueType.i64),
+    _a[WASMOPCode.op_i64_extend16_s] = new WASMOPDef(WASMOPCode.op_i64_extend16_s, [types_1.WASMValueType.i64], types_1.WASMValueType.i64),
+    _a[WASMOPCode.op_i64_extend32_s] = new WASMOPDef(WASMOPCode.op_i64_extend32_s, [types_1.WASMValueType.i64], types_1.WASMValueType.i64),
+    _a[WASMOPCode.op_memory_copy] = new WASMOPDef(WASMOPCode.op_memory_copy, [types_1.WASMValueType.i32, types_1.WASMValueType.i32, types_1.WASMValueType.i32], types_1.WASMValueType.nil),
+    _a[WASMOPCode.op_memory_fill] = new WASMOPDef(WASMOPCode.op_memory_fill, [types_1.WASMValueType.i32, types_1.WASMValueType.i32, types_1.WASMValueType.i32], types_1.WASMValueType.nil),
     _a);

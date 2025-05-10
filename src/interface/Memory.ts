@@ -1,7 +1,8 @@
 const PAGE_SIZE = 65536;
 
 export default class WASMMemory {
-    buffer : Uint8Array = new Uint8Array(0);
+    buffer : ArrayBuffer = new ArrayBuffer();
+    _buffer : Uint8Array = new Uint8Array(this.buffer);
     init : number = 0;
     max : number = 0;
 
@@ -18,7 +19,8 @@ export default class WASMMemory {
         if (this.max < this.init)
             throw new Error("Memory limit must be greater than initial");
         this.max = Math.max(this.max, this.init);
-        this.buffer = new Uint8Array(this.init * PAGE_SIZE);
+        this.buffer = new ArrayBuffer(this.init * PAGE_SIZE);
+        this._buffer = new Uint8Array(this.buffer);
     }
 
     get length() {
