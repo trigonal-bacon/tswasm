@@ -1149,7 +1149,7 @@ export class Program {
                 }
                 case WASMOPCode.op_f32_neg: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, newF32(-Math.abs(x)));
+                    pushSafe(valueStack, newF32(-x));
                     break;
                 }
                 case WASMOPCode.op_f32_ceil: {
@@ -1227,7 +1227,7 @@ export class Program {
                 }
                 case WASMOPCode.op_f64_neg: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, newF64(-Math.abs(x)));
+                    pushSafe(valueStack, newF64(-x));
                     break;
                 }
                 case WASMOPCode.op_f64_ceil: {
