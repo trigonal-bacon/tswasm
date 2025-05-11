@@ -125,7 +125,6 @@ export class FixedLengthWriter {
         this.write_u8(instr);
         if ((instr & 0xff) === 0xfc)
             this.write_u8(instr >> 8);
-        
     }
 
     retroactive_write_u32(u32 : number, ptr : number) {

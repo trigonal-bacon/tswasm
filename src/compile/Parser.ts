@@ -70,7 +70,8 @@ export default class WASMParser {
         while (lexer.has()) {
             const section = lexer.read_uint8();
             if (section > 12) throw new CompileError(`Trying to parse invalid section ${section}`);
-            if (repr.has_section(section)) 
+            console.log(`Parsing section ${section}`);
+            if (section !== 0 && repr.has_section(section)) 
                 throw new CompileError(`Section ${section} already exists`);
 
             repr.sectionLengths[section] = lexer.read_uint32();
@@ -315,7 +316,7 @@ export default class WASMParser {
             let instr_op = lexer.read_uint8();
             if (instr_op === WASMOPCode.op_end || instr_op === WASMOPCode.op_else) break;
             if (instr_op === 0xFC) {
-                console.error("Multibyte instructions not supported and may be ignored in interpretation");
+                console.error(`Multibyte instruction ${instr_op} not supported and may be ignored in interpretation`);
                 instr_op |= lexer.read_uint8() << 8;
             }
             const currInstr = new InstrNode();
@@ -343,8 +344,8 @@ export default class WASMParser {
                 case WASMOPCode.op_call_indirect: {
                     const index = lexer.read_uint32();
                     currInstr.immediates.push(WASMValue.createU32Literal(index));
-                    if (lexer.read_uint8() !== 0x00) 
-                        console.error("Warning: call_indirect typeuse not supported is ignored");
+                    if (lexer.read_uint32() !== 0x00) 
+                        console.error("Warning: call_indirect typeuse not supported and is ignored");
                     break;
                 }
                 case WASMOPCode.op_br_table: {
@@ -356,9 +357,12 @@ export default class WASMParser {
                     currInstr.immediates.push(WASMValue.createU32Literal(label));
                     break;
                 }
+                case WASMOPCode.op_memory_copy:
+                    currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint32()));
+                case WASMOPCode.op_memory_fill:
                 case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow:
-                case WASMOPCode.op_memory_copy: case WASMOPCode.op_memory_fill:
-                    currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint8()));
+                    //idk why
+                    currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint32()));
                     break;                
                 case WASMOPCode.op_i32_load8_s: case WASMOPCode.op_i32_load8_u:
                 case WASMOPCode.op_i64_load8_s: case WASMOPCode.op_i64_load8_u:

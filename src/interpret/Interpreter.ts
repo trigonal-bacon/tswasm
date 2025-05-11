@@ -2,7 +2,7 @@ import { FixedLengthReader } from "../helpers/Lexer";
 import { WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
 import { WASMFuncType, WASMSection2Content, WASMSection4Content } from "../spec/Sections";
-import { typeArrayToString, WASMValueType } from "../spec/Types";
+import { typeArrayToString, WASMRefType, WASMValueType } from "../spec/Types";
 import { WASMExternalGlobal } from "../interface/Global";
 import WASMMemory from "../interface/Memory";
 import WASMTable from "../interface/Table";
@@ -23,13 +23,40 @@ import { LinkError, RuntimeError } from "../spec/Error";
 
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
+function makeExportFunction(prog : Program, index : number) : (...args: Array<any>) => number | bigint | undefined {
+    const funcType = prog.funcTypes[index];
+    const numIters = funcType.args.length;
+    const exportFuncWrapper = (...args : Array<any>) => {
+    const passedOn : Array<WASMValue> = [];
+    for (let i = 0; i < numIters; ++i) {
+            switch (funcType.args[i]) {
+                case WASMValueType.i32:
+                    passedOn.push(newI32(args[i]));
+                    break;
+                case WASMValueType.f32:
+                    passedOn.push(newF32(args[i]));
+                    break;
+                case WASMValueType.i64:
+                    passedOn.push(newI64(BigInt(args[i])));
+                    break;
+                case WASMValueType.f64:
+                    passedOn.push(newF64(args[i]));
+                    break;
+            }
+        }
+        return prog.run(index, passedOn);
+    }
+    return exportFuncWrapper;
+}
 
 class StackFrame {
     locals : Array<WASMValue>;
     pc : number;
-    constructor(locals : Array<WASMValue>, pc : number) {
+    func : number
+    constructor(locals : Array<WASMValue>, pc : number, func : number) {
         this.locals = locals;
         this.pc = pc;
+        this.func = func;
     }
 }
 
@@ -109,8 +136,11 @@ export class Program {
                 const offset = evalConstExpr(elem.offset).u32;
                 if (offset + elem.funcrefs.length > this.tables[0].length)
                     throw new LinkError("Out of Bounds element initialization");
-                for (let i = 0; i < elem.funcrefs.length; ++i)
-                    this.tables[0].elements[i + offset] = elem.funcrefs[i];
+                for (let i = 0; i < elem.funcrefs.length; ++i) {
+                    const table = this.tables[0];
+                    table.elements[i + offset] = elem.funcrefs[i];
+                    table.__funcRefs[i + offset] = makeExportFunction(this, elem.funcrefs[i]);
+                }
             }
         }
         if (repr.has_section(11)) {
@@ -149,7 +179,7 @@ export class Program {
                             }
                             return this.run(exp.index, passedOn);
                         }
-                        this.exports[exp.name] = exportFuncWrapper;
+                        this.exports[exp.name] = makeExportFunction(this, exp.index);
                         break;
                     }
                     case 1:
@@ -236,8 +266,14 @@ export class Program {
     }
 
     initializeTables(tableDesc : Array<WASMSection4Content>) : void {
-        for (const desc of tableDesc)
-            this.tables.push(new WASMTable({ initial: desc.limit.min, maximum: desc.limit.max }))
+        const prog = this;
+        for (const desc of tableDesc) {
+            const table = new WASMTable({ initial: desc.limit.min, maximum: desc.limit.max });
+            if (desc.refKind !== WASMRefType.funcref)
+                throw new LinkError(`External ref table not supported`);
+            this.tables.push(table);
+        }
+
     }
 
     run(entry : number, args : Array<WASMValue>) : bigint | number | undefined {
@@ -321,7 +357,8 @@ export class Program {
                         const frame = callStack.pop();
                         frame !== undefined &&
                         (locals = frame.locals) &&
-                        (reader.at = frame.pc);
+                        (reader.at = frame.pc) &&
+                        (entry = frame.func);
                     }
                     break;
                 }
@@ -352,14 +389,15 @@ export class Program {
                         }
                         break;
                     }
-                    const frame = new StackFrame(locals, reader.at);
+                    const frame = new StackFrame(locals, reader.at, entry);
                     callStack.push(frame);
+                    entry = funcIdx;
                     readFuncPtr(reader, funcIdx - this.importFuncCount);
                     const argC = reader.read_u32();
                     const localC = reader.read_u32();
                     locals = new Array(argC + localC);
                     for (let i = argC; i > 0; --i)
-                        locals[i - 1] = popSafe(valueStack);
+                        locals[i - 1] = cloneValue(popSafe(valueStack));
                     for (let i = 0; i < localC; ++i)
                         locals[i + argC] = new WASMValue(); //error typecheck, won't matter
                     break;
@@ -370,7 +408,7 @@ export class Program {
                         throw new RuntimeError(`No table to index into for call_indirect`);
                     if (tableidx < 0 || tableidx >= this.tables[0].length)
                         throw new RuntimeError(`Table index ${tableidx} out of bounds`);
-                    const funcIdx = this.tables[0].get(tableidx);
+                    const funcIdx = this.tables[0].elements[tableidx];
                     if (funcIdx < this.importFuncCount) {
                         //imported func call
                         const argArr : Array<any> = new Array(this.funcTypes[funcIdx].args.length);
@@ -396,14 +434,15 @@ export class Program {
                         }
                         break;
                     }
-                    const frame = new StackFrame(locals, reader.at);
+                    const frame = new StackFrame(locals, reader.at, entry);
                     callStack.push(frame);
+                    entry = funcIdx;
                     readFuncPtr(reader, funcIdx - this.importFuncCount);
                     const argC = reader.read_u32();
                     const localC = reader.read_u32();
                     locals = new Array(argC + localC);
                     for (let i = argC; i > 0; --i)
-                        locals[i - 1] = popSafe(valueStack);
+                        locals[i - 1] = cloneValue(popSafe(valueStack));
                     for (let i = 0; i < localC; ++i)
                         locals[i + argC] = new WASMValue(); //error typecheck, won't matter
                     break;
@@ -423,7 +462,7 @@ export class Program {
                     const idx = reader.read_u32();
                     if (idx >= locals.length) 
                         throw new RuntimeError(`Local index ${idx} OOB`);
-                    pushSafe(valueStack, locals[idx]);
+                    pushSafe(valueStack, cloneValue(locals[idx]));
                     break;
                 }
                 case WASMOPCode.op_local_set: {
@@ -438,7 +477,7 @@ export class Program {
                     if (idx >= locals.length) 
                         throw new RuntimeError(`Local index ${idx} OOB`);
                     const x = popSafe(valueStack);
-                    locals[idx] = x;
+                    locals[idx] = cloneValue(x);
                     pushSafe(valueStack, x);
                     break;
                 }
@@ -446,7 +485,7 @@ export class Program {
                     const idx = reader.read_u32();
                     if (idx >= this.globals.length) 
                         throw new RuntimeError(`Global index ${idx} OOB`);
-                    pushSafe(valueStack, this.globals[idx]);
+                    pushSafe(valueStack, cloneValue(this.globals[idx]));
                     break;
                 }
                 case WASMOPCode.op_global_set: {
@@ -1402,7 +1441,7 @@ export class Program {
                     pushSafe(valueStack, newF32(CONVERSION_FLOAT32[0]));
                     break;
                 }
-                case WASMOPCode.op_i64_reinterpret_f64: {
+                case WASMOPCode.op_f64_reinterpret_i64: {
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     pushSafe(valueStack, newF64(CONVERSION_FLOAT64[0]));
                     break;
@@ -1437,12 +1476,50 @@ export class Program {
                     pushSafe(valueStack, newI64(CONVERSION_INT64[0]));       
                     break;
                 }
+                case WASMOPCode.op_memory_copy: {
+                    const n = popSafe(valueStack).i32;
+                    const s = popSafe(valueStack).i32;
+                    const d = popSafe(valueStack).i32;
+                    if (d <= s) {
+                        for (let i = 0; i < n; ++i)
+                            this.memory._buffer[i + d] = this.memory._buffer[i + s]; 
+                    }
+                    else {
+                        for (let i = n; i > 0; --i)
+                            this.memory._buffer[d - i - 1] = this.memory._buffer[s - i - 1]; 
+                    }
+                    break;
+                }
                 case WASMOPCode.op_memory_fill: {
                     const n = popSafe(valueStack).i32;
                     const val = popSafe(valueStack).i32;
                     const d = popSafe(valueStack).i32;
                     for (let i = 0; i < n; ++i)
                         this.memory._buffer[d + i] = val;
+                    break;
+                }
+                case WASMOPCode.op_i32_trunc_sat_f32_s: {
+                    //nontrapping
+                    const x = Math.trunc(popSafe(valueStack).f32);
+                    pushSafe(valueStack, newI32(x >> 0));
+                    break;
+                }
+                case WASMOPCode.op_i32_trunc_sat_f32_u: {
+                    //nontrapping
+                    const x = Math.trunc(popSafe(valueStack).f32);
+                    pushSafe(valueStack, newI32(x >>> 0));
+                    break;
+                }
+                case WASMOPCode.op_i32_trunc_sat_f64_s: {
+                    //nontrapping
+                    const x = Math.trunc(popSafe(valueStack).f64);
+                    pushSafe(valueStack, newI32(x >> 0));
+                    break;
+                }
+                case WASMOPCode.op_i32_trunc_sat_f64_u: {
+                    //nontrapping
+                    const x = Math.trunc(popSafe(valueStack).f64);
+                    pushSafe(valueStack, newI32(x >>> 0));
                     break;
                 }
                 case WASMOPCode.op_else:

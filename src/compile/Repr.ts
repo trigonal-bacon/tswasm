@@ -17,6 +17,12 @@ import {
 } from "../spec/Sections";
 import { typeToString, WASMGlobalType, WASMValueType } from "../spec/Types";
 
+function pushSafe(stack : Array<WASMValueType>, t : WASMValueType) : void {
+    if (t === undefined)
+        throw new Error(`Impossible push`);
+    stack.push(t);
+}
+
 function __typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : void {
     if (check === WASMValueType.nil) {
         if (stack.length === 0) return;
@@ -24,9 +30,9 @@ function __typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : v
     }
     const top = stack.pop();
     if (top === undefined)
-        throw new CompileError(`Impossible`);
+        throw new CompileError(`Expected 1 value on stack, got 0`);
     if (top !== check)
-        throw new TypeError(`Type mismatch: expected ${typeToString(check)}, got ${typeToString(top)}`);
+        throw new TypeError(`Type mismatch: expected ${typeToString(check)} on stack, got ${typeToString(top)}`);
 }
 
 function __typeCheckResult(stack : Array<WASMValueType>, check : WASMValueType) : void {
@@ -40,7 +46,7 @@ function __typeCheckResult(stack : Array<WASMValueType>, check : WASMValueType) 
     if (top === undefined)
         throw new CompileError(`Impossible`);
     if (top !== check)
-        throw new TypeError(`Type mismatch: expected ${typeToString(check)}, got ${typeToString(top)}`);
+        throw new TypeError(`Type mismatch: expected ${typeToString(check)} values on stack, got ${typeToString(top)}`);
 }
 
 export default class WASMRepr {
@@ -128,8 +134,8 @@ export default class WASMRepr {
                     case 3:
                         if (exp.index >= this.globalTypes.length)
                             throw new Error(`Exported global ${exp.index} out of range`);
-                        if (this.globalTypes[exp.index].mutable === false)
-                            throw new Error(`Exported global ${exp.index} immutable`);
+                        //if (this.globalTypes[exp.index].mutable === false)
+                            //throw new Error(`Exported global ${exp.index} immutable`);
                         break;
                     default:
                         throw new Error(`Shouldn't happen`);
@@ -158,7 +164,7 @@ export default class WASMRepr {
                 case WASMOPCode.op_local_get:
                     if (args[0].u32 >= num_locals)
                         throw new RangeError(`Local index ${args[0].u32} out of bounds`);
-                    typeStack.push(locals[args[0].u32]);
+                    pushSafe(typeStack, locals[args[0].u32]);
                     break;
                 case WASMOPCode.op_local_set:
                     if (args[0].u32 >= num_locals)
@@ -169,12 +175,12 @@ export default class WASMRepr {
                     if (args[0].u32 >= num_locals)
                         throw new RangeError(`Local index ${args[0].u32} out of bounds`);
                     __typeCheckArg(typeStack, locals[args[0].u32]);
-                    typeStack.push(locals[args[0].u32]);
+                    pushSafe(typeStack, locals[args[0].u32]);
                     break;
                 case WASMOPCode.op_global_get:
                     if (args[0].u32 >= num_globals) 
                         throw new RangeError(`Global index ${args[0].u32} out of bounds`);
-                    typeStack.push(this.globalTypes[args[0].u32].type);
+                    pushSafe(typeStack, this.globalTypes[args[0].u32].type);
                     break;
                 case WASMOPCode.op_global_set:
                     if (args[0].u32 >= num_globals) 
@@ -191,7 +197,7 @@ export default class WASMRepr {
                     for (let i = funcType.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, funcType.args[i - 1]);
                     if (funcType.ret !== WASMValueType.nil)
-                        typeStack.push(funcType.ret);
+                        pushSafe(typeStack, funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
@@ -205,7 +211,7 @@ export default class WASMRepr {
                     for (let i = funcType.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, funcType.args[i - 1]);
                     if (funcType.ret !== WASMValueType.nil)
-                        typeStack.push(funcType.ret);
+                        pushSafe(typeStack, funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_br_if:
@@ -230,7 +236,7 @@ export default class WASMRepr {
                     if (instr.hasElse)
                         this.__validateCodeBlockRecursive(instr.child2, locals, block_types, args[0].u32, func_return);
                     if (args[0].u32 !== WASMValueType.nil)
-                        typeStack.push(args[0].u32);
+                        pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_drop:
@@ -241,13 +247,13 @@ export default class WASMRepr {
                 case WASMOPCode.op_loop:
                     block_types.push(WASMValueType.nil);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) typeStack.push(args[0].u32);
+                    if (args[0].u32 !== WASMValueType.nil) pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_block:
                     block_types.push(args[0].u32);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) typeStack.push(args[0].u32);
+                    if (args[0].u32 !== WASMValueType.nil) pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_unreachable:
@@ -265,18 +271,18 @@ export default class WASMRepr {
                     const t2 = typeStack.pop();
                     if (t1 !== t2 || t1 == undefined)
                         throw new RangeError(`Select operands ${t1} and ${t2} do not match`);
-                    typeStack.push(t1);
+                    pushSafe(typeStack, t1);
                     break;
                 }
                 default: {
                     const instrDef = WASMOPDefs[instr.instr];
                     if (typeStack.length < instrDef.args.length)
-                        throw new RangeError(`Expected at least ${instrDef.args.length} values for ${instr.instr}, got ${typeStack.length}`);
+                        throw new RangeError(`Expected at least ${instrDef.args.length} values on stack for ${instr.instr}, got ${typeStack.length}`);
                     for (let i = instrDef.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, instrDef.args[i - 1])
 
                     if (instrDef.ret !== WASMValueType.nil)
-                        typeStack.push(instrDef.ret);
+                        pushSafe(typeStack, instrDef.ret);
                     break;
                 }
 

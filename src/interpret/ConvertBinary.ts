@@ -27,7 +27,6 @@ function writeWASMValue(writer : FixedLengthWriter, value : WASMValue) : void {
             break;
     }
 }
-
 function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, blockPtrStack : Array<Array<number>>, funcPtrArr : Array<Array<number>>) : void {
     for (const instr of instrs) {
         if (instr.instr === WASMOPCode.op_end) break;
@@ -110,7 +109,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 //functype omitted from call_indirect
                 break;
             }
-            case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow: case WASMOPCode.op_memory_copy:
+            case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow: 
+            case WASMOPCode.op_memory_copy: case WASMOPCode.op_memory_fill:
                 break;
             case WASMOPCode.op_i32_load: case WASMOPCode.op_i32_load8_s: case WASMOPCode.op_i32_load8_u: case WASMOPCode.op_i32_load16_s: case WASMOPCode.op_i32_load16_u:
             case WASMOPCode.op_i64_load: case WASMOPCode.op_i64_load8_s: case WASMOPCode.op_i64_load8_u: case WASMOPCode.op_i64_load16_s: case WASMOPCode.op_i64_load16_u: case WASMOPCode.op_i64_load32_s: case WASMOPCode.op_i64_load32_u:
@@ -120,7 +120,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_i64_store: case WASMOPCode.op_i64_store8: case WASMOPCode.op_i64_store16: case WASMOPCode.op_i64_store32:
             case WASMOPCode.op_f32_store:
             case WASMOPCode.op_f64_store:
-                //error did not write alignmeny at arg[0]
+                //error did not write alignment at arg[0]
                 writer.write_u32(instr.immediates[1].u32);
                 break;
             case WASMOPCode.op_i32_const:
