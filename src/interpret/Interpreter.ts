@@ -9,24 +9,19 @@ import WASMTable from "../interface/Table";
 import WASMModule from "../compile/Module";
 import { convertToExecForm } from "./Convert";
 import evalConstExpr from "./ConstEval";
-import { ctz32, popcnt32, rotl32, rotl64, rotr32, rotr64 } from "../helpers/Math";
+import { toTruthy, ctz32, popcnt32, rotl32, rotl64, rotr32, rotr64 } from "../helpers/Math";
 import {
     CONVERSION_UINT8, CONVERSION_INT8, 
     CONVERSION_UINT16, CONVERSION_INT16,
     CONVERSION_UINT32, CONVERSION_INT32, CONVERSION_FLOAT32,
-    CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64
+    CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64,
+    toConvert, fromConvert
 } from "../helpers/Conversion";
+
+import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length } from "./Alloc";
 
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
-
-function toConvert(src : Uint8Array, ptr : number, size : number) : void {
-    CONVERSION_UINT8.set(src.subarray(ptr, ptr + size), 0);
-}
-
-function fromConvert(src : Uint8Array, ptr : number, size : number) : void {
-    src.set(CONVERSION_UINT8.subarray(0, size), ptr);
-}
 
 class StackFrame {
     locals : Array<WASMValue>;
@@ -37,28 +32,21 @@ class StackFrame {
     }
 }
 
-function toTruthy(b : boolean) : number {
-    return b ? 1 : 0;
-}
-
 function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
-    if (v === undefined)
-        throw new Error(`Won't happen ${v}, ${arr}`);
     arr.push(v);
 }
 
 function popSafe(arr : Array<WASMValue>) : WASMValue {
     if (arr.length === 0) 
         throw new Error("Stack empty, cannot pop");
-    const v = arr.pop();
-    if (v === undefined)
-        throw new Error(`Won't happen ${v}, ${arr}`);
+    const v = arr[arr.length - 1];
+    --arr.length;
     return v;
 }
 
-function readFuncPtr(reader : FixedLengthReader, idx : number) : number {
+function readFuncPtr(reader : FixedLengthReader, idx : number) : void {
     reader.at = idx * 4;
-    return reader.read_u32();
+    reader.at = reader.read_u32();
 }
 
 export class Program {
@@ -145,16 +133,16 @@ export class Program {
                             for (let i = 0; i < numIters; ++i) {
                                 switch (funcType.args[i]) {
                                     case WASMValueType.i32:
-                                        passedOn.push(WASMValue.createI32Literal(args[i]));
+                                        passedOn.push(newI32(args[i]));
                                         break;
                                     case WASMValueType.f32:
-                                        passedOn.push(WASMValue.createF32Literal(args[i]));
+                                        passedOn.push(newF32(args[i]));
                                         break;
                                     case WASMValueType.i64:
-                                        passedOn.push(WASMValue.createI64Literal(BigInt(args[i])));
+                                        passedOn.push(newI64(BigInt(args[i])));
                                         break;
                                     case WASMValueType.f64:
-                                        passedOn.push(WASMValue.createF64Literal(args[i]));
+                                        passedOn.push(newF64(args[i]));
                                         break;
                                 }
                             }
@@ -259,7 +247,7 @@ export class Program {
             return 0; //import function call?
         }
         const reader = new FixedLengthReader(this.code);
-        reader.at = readFuncPtr(reader, entry - this.importFuncCount);
+        readFuncPtr(reader, entry - this.importFuncCount);
         const valueStack : Array<WASMValue> = [];
         const callStack : Array<StackFrame> = [];
         let memBuf = this.memory._buffer;
@@ -316,11 +304,12 @@ export class Program {
                 }
                 case WASMOPCode.op_return: {
                     if (callStack.length === 0) {
+                        console.log(__debug_val_length());
                         if (this.funcTypes[entry].ret !== WASMValueType.nil) {
                             if (valueStack.length !== 1) 
                                 throw new Error(`Stack size ${valueStack.length} not exactly 1`);
-                            const retval = valueStack.pop();
-                            return retval?.numeric;
+                            const retval = popSafe(valueStack);
+                            return retval.numeric;
                         }
                         if (valueStack.length !== 0) throw new Error("Stack expected to be empty");
                         return;
@@ -343,16 +332,16 @@ export class Program {
                         const ret = this.importedFuncs[funcIdx](...argArr);
                         switch(this.funcTypes[funcIdx].ret) {
                             case WASMValueType.i32:
-                                pushSafe(valueStack, WASMValue.createI32Literal(ret));
+                                pushSafe(valueStack, newI32(ret));
                                 break;
                             case WASMValueType.f32:
-                                pushSafe(valueStack, WASMValue.createF32Literal(ret));
+                                pushSafe(valueStack, newF32(ret));
                                 break;
                             case WASMValueType.i64:
-                                pushSafe(valueStack, WASMValue.createI64Literal(BigInt(ret)));
+                                pushSafe(valueStack, newI64(BigInt(ret)));
                                 break;
                             case WASMValueType.f64:
-                                pushSafe(valueStack, WASMValue.createF64Literal(ret));
+                                pushSafe(valueStack, newF64(ret));
                                 break;
                             case WASMValueType.nil:
                             default:
@@ -362,7 +351,7 @@ export class Program {
                     }
                     const frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
+                    readFuncPtr(reader, funcIdx - this.importFuncCount);
                     const argC = reader.read_u32();
                     const localC = reader.read_u32();
                     locals = new Array(argC + localC);
@@ -373,7 +362,6 @@ export class Program {
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
-                    const functype = reader.read_u32();
                     const tableidx = popSafe(valueStack).i32;
                     if (this.tables.length === 0)
                         throw new Error(`No table to index into for call_indirect`);
@@ -388,16 +376,16 @@ export class Program {
                         const ret = this.importedFuncs[funcIdx](...argArr);
                         switch(this.funcTypes[funcIdx].ret) {
                             case WASMValueType.i32:
-                                pushSafe(valueStack, WASMValue.createI32Literal(ret));
+                                pushSafe(valueStack, newI32(ret));
                                 break;
                             case WASMValueType.f32:
-                                pushSafe(valueStack, WASMValue.createF32Literal(ret));
+                                pushSafe(valueStack, newF32(ret));
                                 break;
                             case WASMValueType.i64:
-                                pushSafe(valueStack, WASMValue.createI64Literal(BigInt(ret)));
+                                pushSafe(valueStack, newI64(BigInt(ret)));
                                 break;
                             case WASMValueType.f64:
-                                pushSafe(valueStack, WASMValue.createF64Literal(ret));
+                                pushSafe(valueStack, newF64(ret));
                                 break;
                             case WASMValueType.nil:
                             default:
@@ -407,7 +395,7 @@ export class Program {
                     }
                     const frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
+                    readFuncPtr(reader, funcIdx - this.importFuncCount);
                     const argC = reader.read_u32();
                     const localC = reader.read_u32();
                     locals = new Array(argC + localC);
@@ -437,8 +425,7 @@ export class Program {
                 case WASMOPCode.op_local_set: {
                     const idx = reader.read_u32();
                     if (idx >= locals.length) throw new Error(`Local index ${idx} OOB`);
-                    const x = popSafe(valueStack);
-                    locals[idx] = x;
+                    locals[idx] = cloneValue(popSafe(valueStack));
                     break;
                 }
                 case WASMOPCode.op_local_tee: {
@@ -446,7 +433,7 @@ export class Program {
                     if (idx >= locals.length) 
                         throw new Error(`Local index ${idx} OOB`);
                     const x = popSafe(valueStack);
-                    locals[idx] = x;
+                    locals[idx] = cloneValue(x);
                     pushSafe(valueStack, x);
                     break;
                 }
@@ -469,98 +456,98 @@ export class Program {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT32[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_INT32[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_load: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 8);
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_f32_load: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, WASMValue.createF32Literal(CONVERSION_FLOAT32[0]));
+                    pushSafe(valueStack, newF32(CONVERSION_FLOAT32[0]));
                     break;
                 }
                 case WASMOPCode.op_f64_load: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 8);
-                    pushSafe(valueStack, WASMValue.createF64Literal(CONVERSION_FLOAT64[0]));
+                    pushSafe(valueStack, newF64(CONVERSION_FLOAT64[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_load8_s: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT8[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_INT8[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_load8_u: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_UINT8[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_UINT8[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_load16_s: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT16[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_INT16[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_load16_u: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_UINT16[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_UINT16[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_load8_s: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_INT8[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_INT8[0])));
                     break;
                 }
                 case WASMOPCode.op_i64_load8_u: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_UINT8[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_UINT8[0])));
                     break;
                 }
                 case WASMOPCode.op_i64_load16_s: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_INT16[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_INT16[0])));
                     break;
                 }
                 case WASMOPCode.op_i64_load16_u: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_UINT16[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_UINT16[0])));
                     break;
                 }
                 case WASMOPCode.op_i64_load32_s: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_INT32[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_INT32[0])));
                     break;
                 }
                 case WASMOPCode.op_i64_load32_u: {
                     const offset = reader.read_u32();
                     const ptr = popSafe(valueStack).i32;
                     toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(CONVERSION_UINT32[0])));
+                    pushSafe(valueStack, newI64(BigInt(CONVERSION_UINT32[0])));
                     break;
                 }
                 case WASMOPCode.op_i32_store: {
@@ -636,45 +623,45 @@ export class Program {
                     break;
                 }
                 case WASMOPCode.op_memory_size:
-                    pushSafe(valueStack, WASMValue.createI32Literal(this.memory.init));
+                    pushSafe(valueStack, newI32(this.memory.init));
                     break;
                 case WASMOPCode.op_memory_grow:
-                    pushSafe(valueStack, WASMValue.createI32Literal(this.memory.init));
+                    pushSafe(valueStack, newI32(this.memory.init));
                     console.warn("Memory grow not implemented");
                     break;
                 case WASMOPCode.op_i32_const:
-                    pushSafe(valueStack, WASMValue.createI32Literal(reader.read_i32()));
+                    pushSafe(valueStack, newI32(reader.read_i32()));
                     break;
                 case WASMOPCode.op_i64_const:
-                    pushSafe(valueStack, WASMValue.createI64Literal(reader.read_i64()));
+                    pushSafe(valueStack, newI64(reader.read_i64()));
                     break;
                 case WASMOPCode.op_f32_const:
-                    pushSafe(valueStack, WASMValue.createF32Literal(reader.read_f32()));
+                    pushSafe(valueStack, newF32(reader.read_f32()));
                     break;
                 case WASMOPCode.op_f64_const:
-                    pushSafe(valueStack, WASMValue.createF64Literal(reader.read_f64()));
+                    pushSafe(valueStack, newF64(reader.read_f64()));
                     break;
                 case WASMOPCode.op_i32_eqz: {
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === 0)));
+                    pushSafe(valueStack, newI32(toTruthy(x === 0)));
                     break;
                 }
                 case WASMOPCode.op_i32_eq: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, newI32(toTruthy(x === y)));
                     break;
                 }
                 case WASMOPCode.op_i32_ne: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, newI32(toTruthy(x !== y)));
                     break;
                 }
                 case WASMOPCode.op_i32_lt_s: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_i32_lt_u: {
@@ -682,13 +669,13 @@ export class Program {
                     const y = CONVERSION_UINT32[0];
                     CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     const x = CONVERSION_UINT32[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_i32_gt_s: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_i32_gt_u: {
@@ -696,13 +683,13 @@ export class Program {
                     const y = CONVERSION_UINT32[0];
                     CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     const x = CONVERSION_UINT32[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_i32_le_s: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_i32_le_u: {
@@ -710,13 +697,13 @@ export class Program {
                     const y = CONVERSION_UINT32[0];
                     CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     const x = CONVERSION_UINT32[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_i32_ge_s: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_i32_ge_u: {
@@ -724,30 +711,30 @@ export class Program {
                     const y = CONVERSION_UINT32[0];
                     CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     const x = CONVERSION_UINT32[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_i64_eqz: {
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === BigInt(0))));
+                    pushSafe(valueStack, newI32(toTruthy(x === BigInt(0))));
                     break;
                 }
                 case WASMOPCode.op_i64_eq: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, newI32(toTruthy(x === y)));
                     break;
                 }
                 case WASMOPCode.op_i64_ne: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, newI32(toTruthy(x !== y)));
                     break;
                 }
                 case WASMOPCode.op_i64_lt_s: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_i64_lt_u: {
@@ -755,13 +742,13 @@ export class Program {
                     const y = CONVERSION_UINT64[0];
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_i64_gt_s: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_i64_gt_u: {
@@ -769,13 +756,13 @@ export class Program {
                     const y = CONVERSION_UINT64[0];
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_i64_le_s: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_i64_le_u: {
@@ -783,13 +770,13 @@ export class Program {
                     const y = CONVERSION_UINT64[0];
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_i64_ge_s: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_i64_ge_u: {
@@ -797,112 +784,112 @@ export class Program {
                     const y = CONVERSION_UINT64[0];
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_f32_eq: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, newI32(toTruthy(x === y)));
                     break;
                 }
                 case WASMOPCode.op_f32_ne: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, newI32(toTruthy(x !== y)));
                     break;
                 }
                 case WASMOPCode.op_f32_lt: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_f32_le: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_f32_gt: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_f32_ge: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_f64_eq: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, newI32(toTruthy(x === y)));
                     break;
                 }
                 case WASMOPCode.op_f64_ne: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, newI32(toTruthy(x !== y)));
                     break;
                 }
                 case WASMOPCode.op_f64_lt: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, newI32(toTruthy(x < y)));
                     break;
                 }
                 case WASMOPCode.op_f64_le: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x <= y)));
                     break;
                 }
                 case WASMOPCode.op_f64_gt: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, newI32(toTruthy(x > y)));
                     break;
                 }
                 case WASMOPCode.op_f64_ge: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, newI32(toTruthy(x >= y)));
                     break;
                 }
                 case WASMOPCode.op_i32_clz: {
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(Math.clz32(x)));
+                    pushSafe(valueStack, newI32(Math.clz32(x)));
                     break;
                 }
                 case WASMOPCode.op_i32_ctz: {
                     const x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, WASMValue.createI32Literal(ctz32(x)));
+                    pushSafe(valueStack, newI32(ctz32(x)));
                     break;
                 }
                 case WASMOPCode.op_i32_popcnt: {
                     const x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, WASMValue.createI32Literal(popcnt32(x)));
+                    pushSafe(valueStack, newI32(popcnt32(x)));
                     break;
                 }
                 case WASMOPCode.op_i32_add: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x + y));
+                    pushSafe(valueStack, newI32(x + y));
                     break;
                 }
                 case WASMOPCode.op_i32_sub: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x - y));
+                    pushSafe(valueStack, newI32(x - y));
                     break;
                 }
                 case WASMOPCode.op_i32_mul: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x * y));
+                    pushSafe(valueStack, newI32(x * y));
                     break;
                 }
                 case WASMOPCode.op_i32_div_s: {
@@ -910,7 +897,7 @@ export class Program {
                     const x = popSafe(valueStack).i32;
                     if (y === 0)
                         throw new Error('Division by 0');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x / y));
+                    pushSafe(valueStack, newI32(x / y));
                     break;
                 }
                 case WASMOPCode.op_i32_div_u: {
@@ -918,7 +905,7 @@ export class Program {
                     const x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
                         throw new Error('Division by 0');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x / y));
+                    pushSafe(valueStack, newI32(x / y));
                     break;
                 }
                 case WASMOPCode.op_i32_rem_s: {
@@ -926,7 +913,7 @@ export class Program {
                     const x = popSafe(valueStack).i32;
                     if (y === 0)
                         throw new Error('Remainder by 0');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x % y));
+                    pushSafe(valueStack, newI32(x % y));
                     break;
                 }
                 case WASMOPCode.op_i32_rem_u: {
@@ -934,94 +921,94 @@ export class Program {
                     const x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
                         throw new Error('Remainder by 0');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x % y));
+                    pushSafe(valueStack, newI32(x % y));
                     break;
                 }
                 case WASMOPCode.op_i32_and: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x & y));
+                    pushSafe(valueStack, newI32(x & y));
                     break;
                 }
                 case WASMOPCode.op_i32_or: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x | y));
+                    pushSafe(valueStack, newI32(x | y));
                     break;
                 }
                 case WASMOPCode.op_i32_xor: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x ^ y));
+                    pushSafe(valueStack, newI32(x ^ y));
                     break;
                 }
                 case WASMOPCode.op_i32_shl: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x << y));
+                    pushSafe(valueStack, newI32(x << y));
                     break;
                 }
                 case WASMOPCode.op_i32_shr_s: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >> y));
+                    pushSafe(valueStack, newI32(x >> y));
                     break;
                 }
                 case WASMOPCode.op_i32_shr_u: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >>> y));
+                    pushSafe(valueStack, newI32(x >>> y));
                     break;
                 }
                 case WASMOPCode.op_i32_rotl: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(rotl32(x, y)));
+                    pushSafe(valueStack, newI32(rotl32(x, y)));
                     break;
                 }
                 case WASMOPCode.op_i32_rotr: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(rotr32(x, y)));
+                    pushSafe(valueStack, newI32(rotr32(x, y)));
                     break;
                 }
                 case WASMOPCode.op_i64_clz: {
                     CONVERSION_UINT64[0] = popSafe(valueStack).i64;
                     if (CONVERSION_UINT32[1] === 0)
-                        pushSafe(valueStack, WASMValue.createI64Literal(BigInt(32 + Math.clz32(CONVERSION_UINT32[0]))));
+                        pushSafe(valueStack, newI64(BigInt(32 + Math.clz32(CONVERSION_UINT32[0]))));
                     else
-                        pushSafe(valueStack, WASMValue.createI64Literal(BigInt(Math.clz32(CONVERSION_UINT32[1]))));
+                        pushSafe(valueStack, newI64(BigInt(Math.clz32(CONVERSION_UINT32[1]))));
                     break;
                 }
                 case WASMOPCode.op_i64_ctz: {
                     CONVERSION_UINT64[0] = popSafe(valueStack).i64;
                     if (CONVERSION_UINT32[0] === 0)
-                        pushSafe(valueStack, WASMValue.createI64Literal(BigInt(32 + ctz32(CONVERSION_UINT32[1]))));
+                        pushSafe(valueStack, newI64(BigInt(32 + ctz32(CONVERSION_UINT32[1]))));
                     else
-                        pushSafe(valueStack, WASMValue.createI64Literal(BigInt(ctz32(CONVERSION_UINT32[0]))));
+                        pushSafe(valueStack, newI64(BigInt(ctz32(CONVERSION_UINT32[0]))));
                     break;
                 }
                 case WASMOPCode.op_i64_popcnt: {
                     CONVERSION_UINT64[0] = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(popcnt32(CONVERSION_UINT32[0]) + popcnt32(CONVERSION_UINT32[1]))));
+                    pushSafe(valueStack, newI64(BigInt(popcnt32(CONVERSION_UINT32[0]) + popcnt32(CONVERSION_UINT32[1]))));
                     break;
                 }
                 case WASMOPCode.op_i64_add: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x + y));
+                    pushSafe(valueStack, newI64(x + y));
                     break;
                 }
                 case WASMOPCode.op_i64_sub: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x - y));
+                    pushSafe(valueStack, newI64(x - y));
                     break;
                 }
                 case WASMOPCode.op_i64_mul: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x * y));
+                    pushSafe(valueStack, newI64(x * y));
                     break;
                 }
                 case WASMOPCode.op_i64_div_s: {
@@ -1029,7 +1016,7 @@ export class Program {
                     const x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
                         throw new Error(`Division by 0`);
-                    pushSafe(valueStack, WASMValue.createI64Literal(x / y));
+                    pushSafe(valueStack, newI64(x / y));
                     break;
                 }
                 case WASMOPCode.op_i64_div_u: {
@@ -1039,7 +1026,7 @@ export class Program {
                     const x = CONVERSION_UINT64[0];
                     if (y === BigInt(0))
                         throw new Error(`Division by 0`);
-                    pushSafe(valueStack, WASMValue.createI64Literal(x / y));
+                    pushSafe(valueStack, newI64(x / y));
                     break;
                 }
                 case WASMOPCode.op_i64_rem_s: {
@@ -1047,7 +1034,7 @@ export class Program {
                     const x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
                         throw new Error(`Remainder by 0`);
-                    pushSafe(valueStack, WASMValue.createI64Literal(x % y));
+                    pushSafe(valueStack, newI64(x % y));
                     break;
                 }
                 case WASMOPCode.op_i64_rem_u: {
@@ -1057,259 +1044,259 @@ export class Program {
                     const x = CONVERSION_UINT64[0];
                     if (y === BigInt(0))
                         throw new Error(`Remainder by 0`);
-                    pushSafe(valueStack, WASMValue.createI64Literal(x % y));
+                    pushSafe(valueStack, newI64(x % y));
                     break;
                 }
                 case WASMOPCode.op_i64_and: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x & y));
+                    pushSafe(valueStack, newI64(x & y));
                     break;
                 }
                 case WASMOPCode.op_i64_or: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x | y));
+                    pushSafe(valueStack, newI64(x | y));
                     break;
                 }
                 case WASMOPCode.op_i64_xor: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x ^ y));
+                    pushSafe(valueStack, newI64(x ^ y));
                     break;
                 }
                 case WASMOPCode.op_i64_shl: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x << y));
+                    pushSafe(valueStack, newI64(x << y));
                     break;
                 }
                 case WASMOPCode.op_i64_shr_s: {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(x >> y));
+                    pushSafe(valueStack, newI64(x >> y));
                     break;
                 }
                 case WASMOPCode.op_i64_shr_u: {
                     const y = popSafe(valueStack).i64;
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI64Literal(x >> y));
+                    pushSafe(valueStack, newI64(x >> y));
                     break;
                 }
                 case WASMOPCode.op_i64_rotl: {
                     const y = popSafe(valueStack).i64;
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI64Literal(rotl64(x, y)));
+                    pushSafe(valueStack, newI64(rotl64(x, y)));
                     break;
                 }
                 case WASMOPCode.op_i64_rotr: {
                     const y = popSafe(valueStack).i64;
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
-                    pushSafe(valueStack, WASMValue.createI64Literal(rotr64(x, y)));
+                    pushSafe(valueStack, newI64(rotr64(x, y)));
                     break;
                 }
                 case WASMOPCode.op_f32_abs: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.abs(x)));
+                    pushSafe(valueStack, newF32(Math.abs(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_neg: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(-Math.abs(x)));
+                    pushSafe(valueStack, newF32(-Math.abs(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_ceil: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.ceil(x)));
+                    pushSafe(valueStack, newF32(Math.ceil(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_floor: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.floor(x)));
+                    pushSafe(valueStack, newF32(Math.floor(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_trunc: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.trunc(x)));
+                    pushSafe(valueStack, newF32(Math.trunc(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_nearest: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.round(x)));
+                    pushSafe(valueStack, newF32(Math.round(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_sqrt: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.sqrt(x)));
+                    pushSafe(valueStack, newF32(Math.sqrt(x)));
                     break;
                 }
                 case WASMOPCode.op_f32_add: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(x + y));
+                    pushSafe(valueStack, newF32(x + y));
                     break;
                 }
                 case WASMOPCode.op_f32_sub: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(x - y));
+                    pushSafe(valueStack, newF32(x - y));
                     break;
                 }
                 case WASMOPCode.op_f32_mul: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(x * y));
+                    pushSafe(valueStack, newF32(x * y));
                     break;
                 }
                 case WASMOPCode.op_f32_div: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(x / y));
+                    pushSafe(valueStack, newF32(x / y));
                     break;
                 }
                 case WASMOPCode.op_f32_min: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.min(x, y)));
+                    pushSafe(valueStack, newF32(Math.min(x, y)));
                     break;
                 }
                 case WASMOPCode.op_f32_max: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(Math.max(x, y)));
+                    pushSafe(valueStack, newF32(Math.max(x, y)));
                     break;
                 }
                 case WASMOPCode.op_f32_copysign: {
                     const y = popSafe(valueStack).f32;
                     const x = popSafe(valueStack).f32;
-                    if (Math.sign(y) === Math.sign(x)) pushSafe(valueStack, WASMValue.createF32Literal(x));
-                    else pushSafe(valueStack, WASMValue.createF32Literal(-x));
+                    if (Math.sign(y) === Math.sign(x)) pushSafe(valueStack, newF32(x));
+                    else pushSafe(valueStack, newF32(-x));
                     break;
                 }
                 case WASMOPCode.op_f64_abs: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.abs(x)));
+                    pushSafe(valueStack, newF64(Math.abs(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_neg: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(-Math.abs(x)));
+                    pushSafe(valueStack, newF64(-Math.abs(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_ceil: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.ceil(x)));
+                    pushSafe(valueStack, newF64(Math.ceil(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_floor: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.floor(x)));
+                    pushSafe(valueStack, newF64(Math.floor(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_trunc: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.trunc(x)));
+                    pushSafe(valueStack, newF64(Math.trunc(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_nearest: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.round(x)));
+                    pushSafe(valueStack, newF64(Math.round(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_sqrt: {
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.sqrt(x)));
+                    pushSafe(valueStack, newF64(Math.sqrt(x)));
                     break;
                 }
                 case WASMOPCode.op_f64_add: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x + y));
+                    pushSafe(valueStack, newF64(x + y));
                     break;
                 }
                 case WASMOPCode.op_f64_sub: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x - y));
+                    pushSafe(valueStack, newF64(x - y));
                     break;
                 }
                 case WASMOPCode.op_f64_mul: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x * y));
+                    pushSafe(valueStack, newF64(x * y));
                     break;
                 }
                 case WASMOPCode.op_f64_div: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x / y));
+                    pushSafe(valueStack, newF64(x / y));
                     break;
                 }
                 case WASMOPCode.op_f64_min: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.min(x, y)));
+                    pushSafe(valueStack, newF64(Math.min(x, y)));
                     break;
                 }
                 case WASMOPCode.op_f64_max: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(Math.max(x, y)));
+                    pushSafe(valueStack, newF64(Math.max(x, y)));
                     break;
                 }
                 case WASMOPCode.op_f64_copysign: {
                     const y = popSafe(valueStack).f64;
                     const x = popSafe(valueStack).f64;
-                    if (Math.sign(y) === Math.sign(x)) pushSafe(valueStack, WASMValue.createF64Literal(x));
-                    else pushSafe(valueStack, WASMValue.createF64Literal(-x));
+                    if (Math.sign(y) === Math.sign(x)) pushSafe(valueStack, newF64(x));
+                    else pushSafe(valueStack, newF64(-x));
                     break;
                 }
                 //bit twiddler operations
                 case WASMOPCode.op_i32_wrap_i64: {
                     const x = popSafe(valueStack).i64;
                     CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT32[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_INT32[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f32_s: {
                     const x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
                         throw new Error('Float unrepresentable as a signed int32');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f32_u: {
                     const x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < 0 || x > 0xFFFFFFFF)
                         throw new Error('Float unrepresentable as an unsigned int32');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f64_s: {
                     const x = Math.trunc(popSafe(valueStack).f64);
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
                         throw new Error('Float unrepresentable as a signed int32');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f64_u: {
                     const x = Math.trunc(popSafe(valueStack).f64);
                     if (x < 0 || x > 0xFFFFFFFF)
                         throw new Error('Float unrepresentable as an unsigned int32');
-                    pushSafe(valueStack, WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i64_extend_i32_s: {
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(x)));
+                    pushSafe(valueStack, newI64(BigInt(x)));
                     break;
                 }
                 case WASMOPCode.op_i64_extend_i32_u: {
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createI64Literal(BigInt(x >> 0)));
+                    pushSafe(valueStack, newI64(BigInt(x >> 0)));
                     break;
                 }
                 case WASMOPCode.op_i64_trunc_f32_s: {
@@ -1317,7 +1304,7 @@ export class Program {
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     CONVERSION_INT64[0] = x;
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_trunc_f32_u: {
@@ -1325,7 +1312,7 @@ export class Program {
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_trunc_f64_s: {
@@ -1333,7 +1320,7 @@ export class Program {
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     CONVERSION_INT64[0] = x;
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_trunc_f64_u: {
@@ -1341,108 +1328,108 @@ export class Program {
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_f32_convert_i32_s: {
                     const x = Math.fround(popSafe(valueStack).i32 >> 0);
-                    pushSafe(valueStack, WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, newF32(x));
                     break;
                 }
                 case WASMOPCode.op_f32_convert_i32_u: {
                     const x = Math.fround(popSafe(valueStack).i32 >>> 0);
-                    pushSafe(valueStack, WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, newF32(x));
                     break;
                 }
                 case WASMOPCode.op_f32_convert_i64_s: {
                     const x = Math.fround(Number(popSafe(valueStack).i64) >> 0);
-                    pushSafe(valueStack, WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, newF32(x));
                     break;
                 }
                 case WASMOPCode.op_f32_convert_i64_u: {
                     const x = Math.fround(Number(popSafe(valueStack).i64) >>> 0);
-                    pushSafe(valueStack, WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, newF32(x));
                     break;
                 }
                 case WASMOPCode.op_f32_demote_f64: {
                     const x = Math.fround(popSafe(valueStack).f64);
-                    pushSafe(valueStack, WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, newF32(x));
                     break;
                 }
                 case WASMOPCode.op_f64_convert_i32_s: {
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, newF64(x));
                     break;
                 }
                 case WASMOPCode.op_f64_convert_i32_u: {
                     const x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, newF64(x));
                     break;
                 }
                 case WASMOPCode.op_f64_convert_i64_s: {
                     const x = Number(popSafe(valueStack).i64);
-                    pushSafe(valueStack, WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, newF64(x));
                     break;
                 }
                 case WASMOPCode.op_f64_convert_i64_u: {
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = Number(CONVERSION_UINT64[0]);
-                    pushSafe(valueStack, WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, newF64(x));
                     break;
                 }
                 case WASMOPCode.op_f64_promote_f32: {
                     const x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, newF64(x));
                     break;
                 }
                 case WASMOPCode.op_i32_reinterpret_f32: {
                     CONVERSION_FLOAT32[0] = popSafe(valueStack).f32;
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT32[0]));
+                    pushSafe(valueStack, newI32(CONVERSION_INT32[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_reinterpret_f64: {
                     CONVERSION_FLOAT64[0] = popSafe(valueStack).f64;
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
                 }
                 case WASMOPCode.op_f32_reinterpret_i32: {
                     CONVERSION_INT32[0] = popSafe(valueStack).i32;
-                    pushSafe(valueStack, WASMValue.createF32Literal(CONVERSION_FLOAT32[0]));
+                    pushSafe(valueStack, newF32(CONVERSION_FLOAT32[0]));
                     break;
                 }
                 case WASMOPCode.op_i64_reinterpret_f64: {
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
-                    pushSafe(valueStack, WASMValue.createF64Literal(CONVERSION_FLOAT64[0]));
+                    pushSafe(valueStack, newF64(CONVERSION_FLOAT64[0]));
                     break;
                 }
                 case WASMOPCode.op_i32_extend8_s: {
                     const x = popSafe(valueStack).i32;
                     CONVERSION_UINT8[0] = x;
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT32[0]));       
+                    pushSafe(valueStack, newI32(CONVERSION_INT32[0]));       
                     break;
                 }
                 case WASMOPCode.op_i32_extend16_s: {
                     const x = popSafe(valueStack).i32;
                     CONVERSION_UINT16[0] = x;
-                    pushSafe(valueStack, WASMValue.createI32Literal(CONVERSION_INT32[0]));       
+                    pushSafe(valueStack, newI32(CONVERSION_INT32[0]));       
                     break;
                 }
                 case WASMOPCode.op_i64_extend8_s: {
                     const x = popSafe(valueStack).i64;
                     CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));       
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));       
                     break;
                 }
                 case WASMOPCode.op_i64_extend16_s: {
                     const x = popSafe(valueStack).i64;
                     CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));       
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));       
                     break;
                 }
                 case WASMOPCode.op_i64_extend32_s: {
                     const x = popSafe(valueStack).i64;
                     CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, WASMValue.createI64Literal(CONVERSION_INT64[0]));       
+                    pushSafe(valueStack, newI64(CONVERSION_INT64[0]));       
                     break;
                 }
                 case WASMOPCode.op_memory_fill: {

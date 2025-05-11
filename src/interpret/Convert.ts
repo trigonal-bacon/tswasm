@@ -102,8 +102,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 break;
             }
             case WASMOPCode.op_call_indirect: {
-                //functype, probably won't work
-                writer.write_u32(instr.immediates[0].u32);
+                //functype omitted from call_indirect
                 break;
             }
             case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow: case WASMOPCode.op_memory_copy:

@@ -12,14 +12,9 @@ var Convert_1 = require("./Convert");
 var ConstEval_1 = require("./ConstEval");
 var Math_1 = require("../helpers/Math");
 var Conversion_1 = require("../helpers/Conversion");
+var Alloc_1 = require("./Alloc");
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
-function toConvert(src, ptr, size) {
-    Conversion_1.CONVERSION_UINT8.set(src.subarray(ptr, ptr + size), 0);
-}
-function fromConvert(src, ptr, size) {
-    src.set(Conversion_1.CONVERSION_UINT8.subarray(0, size), ptr);
-}
 var StackFrame = /** @class */ (function () {
     function StackFrame(locals, pc) {
         this.locals = locals;
@@ -27,25 +22,19 @@ var StackFrame = /** @class */ (function () {
     }
     return StackFrame;
 }());
-function toTruthy(b) {
-    return b ? 1 : 0;
-}
 function pushSafe(arr, v) {
-    if (v === undefined)
-        throw new Error("Won't happen ".concat(v, ", ").concat(arr));
     arr.push(v);
 }
 function popSafe(arr) {
     if (arr.length === 0)
         throw new Error("Stack empty, cannot pop");
-    var v = arr.pop();
-    if (v === undefined)
-        throw new Error("Won't happen ".concat(v, ", ").concat(arr));
+    var v = arr[arr.length - 1];
+    --arr.length;
     return v;
 }
 function readFuncPtr(reader, idx) {
     reader.at = idx * 4;
-    return reader.read_u32();
+    reader.at = reader.read_u32();
 }
 var Program = /** @class */ (function () {
     function Program(repr, imports) {
@@ -132,16 +121,16 @@ var Program = /** @class */ (function () {
                             for (var i = 0; i < numIters_1; ++i) {
                                 switch (funcType_1.args[i]) {
                                     case types_1.WASMValueType.i32:
-                                        passedOn.push(Code_1.WASMValue.createI32Literal(args[i]));
+                                        passedOn.push((0, Alloc_1.newI32)(args[i]));
                                         break;
                                     case types_1.WASMValueType.f32:
-                                        passedOn.push(Code_1.WASMValue.createF32Literal(args[i]));
+                                        passedOn.push((0, Alloc_1.newF32)(args[i]));
                                         break;
                                     case types_1.WASMValueType.i64:
-                                        passedOn.push(Code_1.WASMValue.createI64Literal(BigInt(args[i])));
+                                        passedOn.push((0, Alloc_1.newI64)(BigInt(args[i])));
                                         break;
                                     case types_1.WASMValueType.f64:
-                                        passedOn.push(Code_1.WASMValue.createF64Literal(args[i]));
+                                        passedOn.push((0, Alloc_1.newF64)(args[i]));
                                         break;
                                 }
                             }
@@ -251,7 +240,7 @@ var Program = /** @class */ (function () {
             return 0; //import function call?
         }
         var reader = new Lexer_1.FixedLengthReader(this.code);
-        reader.at = readFuncPtr(reader, entry - this.importFuncCount);
+        readFuncPtr(reader, entry - this.importFuncCount);
         var valueStack = [];
         var callStack = [];
         var memBuf = this.memory._buffer;
@@ -308,11 +297,12 @@ var Program = /** @class */ (function () {
                 }
                 case OpCode_1.WASMOPCode.op_return: {
                     if (callStack.length === 0) {
+                        console.log((0, Alloc_1.__debug_val_length)());
                         if (this.funcTypes[entry].ret !== types_1.WASMValueType.nil) {
                             if (valueStack.length !== 1)
                                 throw new Error("Stack size ".concat(valueStack.length, " not exactly 1"));
-                            var retval = valueStack.pop();
-                            return retval === null || retval === void 0 ? void 0 : retval.numeric;
+                            var retval = popSafe(valueStack);
+                            return retval.numeric;
                         }
                         if (valueStack.length !== 0)
                             throw new Error("Stack expected to be empty");
@@ -336,16 +326,16 @@ var Program = /** @class */ (function () {
                         var ret = (_a = this.importedFuncs)[funcIdx].apply(_a, argArr);
                         switch (this.funcTypes[funcIdx].ret) {
                             case types_1.WASMValueType.i32:
-                                pushSafe(valueStack, Code_1.WASMValue.createI32Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newI32)(ret));
                                 break;
                             case types_1.WASMValueType.f32:
-                                pushSafe(valueStack, Code_1.WASMValue.createF32Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newF32)(ret));
                                 break;
                             case types_1.WASMValueType.i64:
-                                pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(ret)));
+                                pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(ret)));
                                 break;
                             case types_1.WASMValueType.f64:
-                                pushSafe(valueStack, Code_1.WASMValue.createF64Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newF64)(ret));
                                 break;
                             case types_1.WASMValueType.nil:
                             default:
@@ -355,7 +345,7 @@ var Program = /** @class */ (function () {
                     }
                     var frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
+                    readFuncPtr(reader, funcIdx - this.importFuncCount);
                     var argC_1 = reader.read_u32();
                     var localC_1 = reader.read_u32();
                     locals = new Array(argC_1 + localC_1);
@@ -366,7 +356,6 @@ var Program = /** @class */ (function () {
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_call_indirect: {
-                    var functype = reader.read_u32();
                     var tableidx = popSafe(valueStack).i32;
                     if (this.tables.length === 0)
                         throw new Error("No table to index into for call_indirect");
@@ -381,16 +370,16 @@ var Program = /** @class */ (function () {
                         var ret = (_b = this.importedFuncs)[funcIdx].apply(_b, argArr);
                         switch (this.funcTypes[funcIdx].ret) {
                             case types_1.WASMValueType.i32:
-                                pushSafe(valueStack, Code_1.WASMValue.createI32Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newI32)(ret));
                                 break;
                             case types_1.WASMValueType.f32:
-                                pushSafe(valueStack, Code_1.WASMValue.createF32Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newF32)(ret));
                                 break;
                             case types_1.WASMValueType.i64:
-                                pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(ret)));
+                                pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(ret)));
                                 break;
                             case types_1.WASMValueType.f64:
-                                pushSafe(valueStack, Code_1.WASMValue.createF64Literal(ret));
+                                pushSafe(valueStack, (0, Alloc_1.newF64)(ret));
                                 break;
                             case types_1.WASMValueType.nil:
                             default:
@@ -400,7 +389,7 @@ var Program = /** @class */ (function () {
                     }
                     var frame = new StackFrame(locals, reader.at);
                     callStack.push(frame);
-                    reader.at = readFuncPtr(reader, funcIdx - this.importFuncCount);
+                    readFuncPtr(reader, funcIdx - this.importFuncCount);
                     var argC_2 = reader.read_u32();
                     var localC_2 = reader.read_u32();
                     locals = new Array(argC_2 + localC_2);
@@ -434,8 +423,7 @@ var Program = /** @class */ (function () {
                     var idx = reader.read_u32();
                     if (idx >= locals.length)
                         throw new Error("Local index ".concat(idx, " OOB"));
-                    var x = popSafe(valueStack);
-                    locals[idx] = x;
+                    locals[idx] = (0, Alloc_1.cloneValue)(popSafe(valueStack));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_local_tee: {
@@ -443,7 +431,7 @@ var Program = /** @class */ (function () {
                     if (idx >= locals.length)
                         throw new Error("Local index ".concat(idx, " OOB"));
                     var x = popSafe(valueStack);
-                    locals[idx] = x;
+                    locals[idx] = (0, Alloc_1.cloneValue)(x);
                     pushSafe(valueStack, x);
                     break;
                 }
@@ -465,99 +453,99 @@ var Program = /** @class */ (function () {
                 case OpCode_1.WASMOPCode.op_i32_load: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT32[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 4);
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 8);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 8);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_load: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Conversion_1.CONVERSION_FLOAT32[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 4);
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Conversion_1.CONVERSION_FLOAT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_load: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 8);
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Conversion_1.CONVERSION_FLOAT64[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 8);
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Conversion_1.CONVERSION_FLOAT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_load8_s: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT8[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 1);
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT8[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_load8_u: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_UINT8[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 1);
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_UINT8[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_load16_s: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT16[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 2);
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT16[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_load16_u: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_UINT16[0]));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 2);
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_UINT16[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load8_s: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_INT8[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 1);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_INT8[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load8_u: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 1);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_UINT8[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 1);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_UINT8[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load16_s: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_INT16[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 2);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_INT16[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load16_u: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 2);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_UINT16[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 2);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_UINT16[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load32_s: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_INT32[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 4);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_INT32[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_load32_u: {
                     var offset = reader.read_u32();
                     var ptr = popSafe(valueStack).i32;
-                    toConvert(memBuf, ptr + offset, 4);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Conversion_1.CONVERSION_UINT32[0])));
+                    (0, Conversion_1.toConvert)(memBuf, ptr + offset, 4);
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Conversion_1.CONVERSION_UINT32[0])));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_store: {
@@ -565,7 +553,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i32;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT32[0] = val;
-                    fromConvert(memBuf, ptr + offset, 4);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 4);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_store: {
@@ -573,7 +561,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i64;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT64[0] = val;
-                    fromConvert(memBuf, ptr + offset, 8);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 8);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_store: {
@@ -581,7 +569,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).f32;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_FLOAT32[0] = val;
-                    fromConvert(memBuf, ptr + offset, 4);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 4);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_store: {
@@ -589,7 +577,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).f64;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_FLOAT64[0] = val;
-                    fromConvert(memBuf, ptr + offset, 8);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 8);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_store8: {
@@ -597,7 +585,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i32;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT32[0] = val;
-                    fromConvert(memBuf, ptr + offset, 1);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 1);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_store16: {
@@ -605,7 +593,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i32;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT32[0] = val;
-                    fromConvert(memBuf, ptr + offset, 2);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 2);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_store8: {
@@ -613,7 +601,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i64;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT64[0] = val;
-                    fromConvert(memBuf, ptr + offset, 1);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 1);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_store16: {
@@ -621,7 +609,7 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i64;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT64[0] = val;
-                    fromConvert(memBuf, ptr + offset, 2);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 2);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_store32: {
@@ -629,49 +617,49 @@ var Program = /** @class */ (function () {
                     var val = popSafe(valueStack).i64;
                     var ptr = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_INT64[0] = val;
-                    fromConvert(memBuf, ptr + offset, 4);
+                    (0, Conversion_1.fromConvert)(memBuf, ptr + offset, 4);
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_memory_size:
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(this.memory.init));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(this.memory.init));
                     break;
                 case OpCode_1.WASMOPCode.op_memory_grow:
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(this.memory.init));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(this.memory.init));
                     console.warn("Memory grow not implemented");
                     break;
                 case OpCode_1.WASMOPCode.op_i32_const:
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(reader.read_i32()));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(reader.read_i32()));
                     break;
                 case OpCode_1.WASMOPCode.op_i64_const:
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(reader.read_i64()));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(reader.read_i64()));
                     break;
                 case OpCode_1.WASMOPCode.op_f32_const:
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(reader.read_f32()));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(reader.read_f32()));
                     break;
                 case OpCode_1.WASMOPCode.op_f64_const:
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(reader.read_f64()));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(reader.read_f64()));
                     break;
                 case OpCode_1.WASMOPCode.op_i32_eqz: {
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === 0)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === 0)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_eq: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_ne: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x !== y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_lt_s: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_lt_u: {
@@ -679,13 +667,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT32[0];
                     Conversion_1.CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     var x = Conversion_1.CONVERSION_UINT32[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_gt_s: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_gt_u: {
@@ -693,13 +681,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT32[0];
                     Conversion_1.CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     var x = Conversion_1.CONVERSION_UINT32[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_le_s: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_le_u: {
@@ -707,13 +695,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT32[0];
                     Conversion_1.CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     var x = Conversion_1.CONVERSION_UINT32[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_ge_s: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_ge_u: {
@@ -721,30 +709,30 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT32[0];
                     Conversion_1.CONVERSION_INT32[0] = popSafe(valueStack).i32;
                     var x = Conversion_1.CONVERSION_UINT32[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_eqz: {
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === BigInt(0))));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === BigInt(0))));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_eq: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_ne: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x !== y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_lt_s: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_lt_u: {
@@ -752,13 +740,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT64[0];
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_gt_s: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_gt_u: {
@@ -766,13 +754,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT64[0];
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_le_s: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_le_u: {
@@ -780,13 +768,13 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT64[0];
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_ge_s: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_ge_u: {
@@ -794,112 +782,112 @@ var Program = /** @class */ (function () {
                     var y = Conversion_1.CONVERSION_UINT64[0];
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_eq: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_ne: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x !== y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_lt: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_le: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_gt: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_ge: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_eq: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x === y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x === y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_ne: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x !== y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x !== y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_lt: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x < y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x < y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_le: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x <= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x <= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_gt: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x > y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x > y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_ge: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(toTruthy(x >= y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.toTruthy)(x >= y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_clz: {
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Math.clz32(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Math.clz32(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_ctz: {
                     var x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal((0, Math_1.ctz32)(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.ctz32)(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_popcnt: {
                     var x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal((0, Math_1.popcnt32)(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.popcnt32)(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_add: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x + y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x + y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_sub: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x - y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x - y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_mul: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x * y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x * y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_div_s: {
@@ -907,7 +895,7 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i32;
                     if (y === 0)
                         throw new Error('Division by 0');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_div_u: {
@@ -915,7 +903,7 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
                         throw new Error('Division by 0');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_rem_s: {
@@ -923,7 +911,7 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i32;
                     if (y === 0)
                         throw new Error('Remainder by 0');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x % y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x % y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_rem_u: {
@@ -931,94 +919,94 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
                         throw new Error('Remainder by 0');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x % y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x % y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_and: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x & y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x & y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_or: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x | y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x | y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_xor: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x ^ y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x ^ y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_shl: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x << y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x << y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_shr_s: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >> y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >> y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_shr_u: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >>> y));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >>> y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_rotl: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal((0, Math_1.rotl32)(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.rotl32)(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_rotr: {
                     var y = popSafe(valueStack).i32;
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal((0, Math_1.rotr32)(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)((0, Math_1.rotr32)(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_clz: {
                     Conversion_1.CONVERSION_UINT64[0] = popSafe(valueStack).i64;
                     if (Conversion_1.CONVERSION_UINT32[1] === 0)
-                        pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(32 + Math.clz32(Conversion_1.CONVERSION_UINT32[0]))));
+                        pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(32 + Math.clz32(Conversion_1.CONVERSION_UINT32[0]))));
                     else
-                        pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(Math.clz32(Conversion_1.CONVERSION_UINT32[1]))));
+                        pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(Math.clz32(Conversion_1.CONVERSION_UINT32[1]))));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_ctz: {
                     Conversion_1.CONVERSION_UINT64[0] = popSafe(valueStack).i64;
                     if (Conversion_1.CONVERSION_UINT32[0] === 0)
-                        pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(32 + (0, Math_1.ctz32)(Conversion_1.CONVERSION_UINT32[1]))));
+                        pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(32 + (0, Math_1.ctz32)(Conversion_1.CONVERSION_UINT32[1]))));
                     else
-                        pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt((0, Math_1.ctz32)(Conversion_1.CONVERSION_UINT32[0]))));
+                        pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt((0, Math_1.ctz32)(Conversion_1.CONVERSION_UINT32[0]))));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_popcnt: {
                     Conversion_1.CONVERSION_UINT64[0] = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt((0, Math_1.popcnt32)(Conversion_1.CONVERSION_UINT32[0]) + (0, Math_1.popcnt32)(Conversion_1.CONVERSION_UINT32[1]))));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt((0, Math_1.popcnt32)(Conversion_1.CONVERSION_UINT32[0]) + (0, Math_1.popcnt32)(Conversion_1.CONVERSION_UINT32[1]))));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_add: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x + y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x + y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_sub: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x - y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x - y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_mul: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x * y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x * y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_div_s: {
@@ -1026,7 +1014,7 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
                         throw new Error("Division by 0");
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_div_u: {
@@ -1036,7 +1024,7 @@ var Program = /** @class */ (function () {
                     var x = Conversion_1.CONVERSION_UINT64[0];
                     if (y === BigInt(0))
                         throw new Error("Division by 0");
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_rem_s: {
@@ -1044,7 +1032,7 @@ var Program = /** @class */ (function () {
                     var x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
                         throw new Error("Remainder by 0");
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x % y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x % y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_rem_u: {
@@ -1054,263 +1042,263 @@ var Program = /** @class */ (function () {
                     var x = Conversion_1.CONVERSION_UINT64[0];
                     if (y === BigInt(0))
                         throw new Error("Remainder by 0");
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x % y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x % y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_and: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x & y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x & y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_or: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x | y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x | y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_xor: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x ^ y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x ^ y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_shl: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x << y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x << y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_shr_s: {
                     var y = popSafe(valueStack).i64;
                     var x = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x >> y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x >> y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_shr_u: {
                     var y = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(x >> y));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(x >> y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_rotl: {
                     var y = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal((0, Math_1.rotl64)(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)((0, Math_1.rotl64)(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_rotr: {
                     var y = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Conversion_1.CONVERSION_UINT64[0];
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal((0, Math_1.rotr64)(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)((0, Math_1.rotr64)(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_abs: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.abs(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.abs(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_neg: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(-Math.abs(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(-Math.abs(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_ceil: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.ceil(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.ceil(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_floor: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.floor(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.floor(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_trunc: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.trunc(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.trunc(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_nearest: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.round(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.round(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_sqrt: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.sqrt(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.sqrt(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_add: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x + y));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x + y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_sub: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x - y));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x - y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_mul: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x * y));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x * y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_div: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_min: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.min(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.min(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_max: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Math.max(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Math.max(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_copysign: {
                     var y = popSafe(valueStack).f32;
                     var x = popSafe(valueStack).f32;
                     if (Math.sign(y) === Math.sign(x))
-                        pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                        pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     else
-                        pushSafe(valueStack, Code_1.WASMValue.createF32Literal(-x));
+                        pushSafe(valueStack, (0, Alloc_1.newF32)(-x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_abs: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.abs(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.abs(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_neg: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(-Math.abs(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(-Math.abs(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_ceil: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.ceil(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.ceil(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_floor: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.floor(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.floor(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_trunc: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.trunc(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.trunc(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_nearest: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.round(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.round(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_sqrt: {
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.sqrt(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.sqrt(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_add: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x + y));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x + y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_sub: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x - y));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x - y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_mul: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x * y));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x * y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_div: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x / y));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x / y));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_min: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.min(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.min(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_max: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Math.max(x, y)));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Math.max(x, y)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_copysign: {
                     var y = popSafe(valueStack).f64;
                     var x = popSafe(valueStack).f64;
                     if (Math.sign(y) === Math.sign(x))
-                        pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                        pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     else
-                        pushSafe(valueStack, Code_1.WASMValue.createF64Literal(-x));
+                        pushSafe(valueStack, (0, Alloc_1.newF64)(-x));
                     break;
                 }
                 //bit twiddler operations
                 case OpCode_1.WASMOPCode.op_i32_wrap_i64: {
                     var x = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT32[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_trunc_f32_s: {
                     var x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
                         throw new Error('Float unrepresentable as a signed int32');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >> 0));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_trunc_f32_u: {
                     var x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < 0 || x > 0xFFFFFFFF)
                         throw new Error('Float unrepresentable as an unsigned int32');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >> 0));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_trunc_f64_s: {
                     var x = Math.trunc(popSafe(valueStack).f64);
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
                         throw new Error('Float unrepresentable as a signed int32');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >> 0));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_trunc_f64_u: {
                     var x = Math.trunc(popSafe(valueStack).f64);
                     if (x < 0 || x > 0xFFFFFFFF)
                         throw new Error('Float unrepresentable as an unsigned int32');
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(x >> 0));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(x >> 0));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_extend_i32_s: {
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(x)));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(x)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_extend_i32_u: {
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(BigInt(x >> 0)));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(BigInt(x >> 0)));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_trunc_f32_s: {
@@ -1318,7 +1306,7 @@ var Program = /** @class */ (function () {
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     Conversion_1.CONVERSION_INT64[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_trunc_f32_u: {
@@ -1326,7 +1314,7 @@ var Program = /** @class */ (function () {
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     Conversion_1.CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_trunc_f64_s: {
@@ -1334,7 +1322,7 @@ var Program = /** @class */ (function () {
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     Conversion_1.CONVERSION_INT64[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_trunc_f64_u: {
@@ -1342,108 +1330,108 @@ var Program = /** @class */ (function () {
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
                         throw new Error('Float unrepresentable as a signed int64');
                     Conversion_1.CONVERSION_UINT64[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_convert_i32_s: {
                     var x = Math.fround(popSafe(valueStack).i32 >> 0);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_convert_i32_u: {
                     var x = Math.fround(popSafe(valueStack).i32 >>> 0);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_convert_i64_s: {
                     var x = Math.fround(Number(popSafe(valueStack).i64) >> 0);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_convert_i64_u: {
                     var x = Math.fround(Number(popSafe(valueStack).i64) >>> 0);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_demote_f64: {
                     var x = Math.fround(popSafe(valueStack).f64);
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_convert_i32_s: {
                     var x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_convert_i32_u: {
                     var x = popSafe(valueStack).i32 >>> 0;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_convert_i64_s: {
                     var x = Number(popSafe(valueStack).i64);
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_convert_i64_u: {
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     var x = Number(Conversion_1.CONVERSION_UINT64[0]);
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f64_promote_f32: {
                     var x = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(x));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(x));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_reinterpret_f32: {
                     Conversion_1.CONVERSION_FLOAT32[0] = popSafe(valueStack).f32;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT32[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_reinterpret_f64: {
                     Conversion_1.CONVERSION_FLOAT64[0] = popSafe(valueStack).f64;
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_f32_reinterpret_i32: {
                     Conversion_1.CONVERSION_INT32[0] = popSafe(valueStack).i32;
-                    pushSafe(valueStack, Code_1.WASMValue.createF32Literal(Conversion_1.CONVERSION_FLOAT32[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newF32)(Conversion_1.CONVERSION_FLOAT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_reinterpret_f64: {
                     Conversion_1.CONVERSION_INT64[0] = popSafe(valueStack).i64;
-                    pushSafe(valueStack, Code_1.WASMValue.createF64Literal(Conversion_1.CONVERSION_FLOAT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newF64)(Conversion_1.CONVERSION_FLOAT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_extend8_s: {
                     var x = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_UINT8[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT32[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i32_extend16_s: {
                     var x = popSafe(valueStack).i32;
                     Conversion_1.CONVERSION_UINT16[0] = x;
-                    pushSafe(valueStack, Code_1.WASMValue.createI32Literal(Conversion_1.CONVERSION_INT32[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI32)(Conversion_1.CONVERSION_INT32[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_extend8_s: {
                     var x = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_extend16_s: {
                     var x = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_i64_extend32_s: {
                     var x = popSafe(valueStack).i64;
                     Conversion_1.CONVERSION_UINT8[0] = Number(x);
-                    pushSafe(valueStack, Code_1.WASMValue.createI64Literal(Conversion_1.CONVERSION_INT64[0]));
+                    pushSafe(valueStack, (0, Alloc_1.newI64)(Conversion_1.CONVERSION_INT64[0]));
                     break;
                 }
                 case OpCode_1.WASMOPCode.op_memory_fill: {

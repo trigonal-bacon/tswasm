@@ -9,3 +9,11 @@ export const CONVERSION_FLOAT32 = new Float32Array(CONVERSION_BUFFER);
 export const CONVERSION_UINT64 = new BigUint64Array(CONVERSION_BUFFER);
 export const CONVERSION_INT64 = new BigInt64Array(CONVERSION_BUFFER);
 export const CONVERSION_FLOAT64 = new Float64Array(CONVERSION_BUFFER);
+
+export function toConvert(src : Uint8Array, ptr : number, size : number) : void {
+    CONVERSION_UINT8.set(src.subarray(ptr, ptr + size), 0);
+}
+
+export function fromConvert(src : Uint8Array, ptr : number, size : number) : void {
+    src.set(CONVERSION_UINT8.subarray(0, size), ptr);
+}

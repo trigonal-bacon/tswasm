@@ -1,11 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.toTruthy = toTruthy;
 exports.popcnt32 = popcnt32;
 exports.ctz32 = ctz32;
 exports.rotl32 = rotl32;
 exports.rotr32 = rotr32;
 exports.rotl64 = rotl64;
 exports.rotr64 = rotr64;
+function toTruthy(b) {
+    return b ? 1 : 0;
+}
 function popcnt32(i) {
     var count = 0;
     i >>>= 0;

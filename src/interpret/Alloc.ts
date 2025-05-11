@@ -3,7 +3,12 @@ import { WASMValueType } from "../spec/types";
 
 const VALUE_ARENA : Array<WASMValue> = [];
 
-function cloneValue(v : WASMValue) : WASMValue {
+let allocs : number = 0;
+export function __debug_val_length() : number {
+    return allocs;
+}
+
+export function cloneValue(v : WASMValue) : WASMValue {
     if (VALUE_ARENA.length === 0) {
         const ret = new WASMValue();
         ret.type = v.type;
@@ -19,7 +24,8 @@ function cloneValue(v : WASMValue) : WASMValue {
     return ret;
 }
 
-function newI32(v : number) : WASMValue {
+export function newI32(v : number) : WASMValue {
+    ++allocs;
     if (VALUE_ARENA.length === 0) return WASMValue.createI32Literal(v);
     const val = VALUE_ARENA[VALUE_ARENA.length - 1];
     VALUE_ARENA.length -= 1;
@@ -28,7 +34,8 @@ function newI32(v : number) : WASMValue {
     return val;
 }
 
-function newF32(v : number) : WASMValue {
+export function newF32(v : number) : WASMValue {
+    ++allocs;
     if (VALUE_ARENA.length === 0) return WASMValue.createF32Literal(v);
     const val = VALUE_ARENA[VALUE_ARENA.length - 1];
     VALUE_ARENA.length -= 1;
@@ -37,7 +44,8 @@ function newF32(v : number) : WASMValue {
     return val;
 }
 
-function newI64(v : bigint) : WASMValue {
+export function newI64(v : bigint) : WASMValue {
+    ++allocs;
     if (VALUE_ARENA.length === 0) return WASMValue.createI64Literal(v);
     const val = VALUE_ARENA[VALUE_ARENA.length - 1];
     VALUE_ARENA.length -= 1;
@@ -46,7 +54,8 @@ function newI64(v : bigint) : WASMValue {
     return val;
 }
 
-function newF64(v : number) : WASMValue {
+export function newF64(v : number) : WASMValue {
+    ++allocs;
     if (VALUE_ARENA.length === 0) return WASMValue.createF64Literal(v);
     const val = VALUE_ARENA[VALUE_ARENA.length - 1];
     VALUE_ARENA.length -= 1;
@@ -55,6 +64,6 @@ function newF64(v : number) : WASMValue {
     return val;
 }
 
-function freeVal(v : WASMValue) : void {
+export function freeVal(v : WASMValue) : void {
     VALUE_ARENA.push(v);
 }

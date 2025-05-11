@@ -1,3 +1,7 @@
+export function toTruthy(b : boolean) : number {
+    return b ? 1 : 0;
+}
+
 export function popcnt32(i : number) : number {
   let count = 0;
   i >>>= 0;

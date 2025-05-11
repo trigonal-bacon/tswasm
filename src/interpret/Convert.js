@@ -110,8 +110,7 @@ function writeInstrNodes(writer, instrs, blockPtrStack, funcPtrArr) {
                 break;
             }
             case OpCode_1.WASMOPCode.op_call_indirect: {
-                //functype, probably won't work
-                writer.write_u32(instr.immediates[0].u32);
+                //functype omitted from call_indirect
                 break;
             }
             case OpCode_1.WASMOPCode.op_memory_size:
