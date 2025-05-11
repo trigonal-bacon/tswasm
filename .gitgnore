@@ -1,5 +1,5 @@
 package-lock.json
-node_modules/
-test/
-emscripten/
-dist/
+node_modules
+test
+emscripten
+dist
