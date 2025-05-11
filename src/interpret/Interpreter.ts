@@ -7,7 +7,7 @@ import { WASMExternalGlobal } from "../interface/Global";
 import WASMMemory from "../interface/Memory";
 import WASMTable from "../interface/Table";
 import WASMModule from "../compile/Module";
-import { convertToExecForm } from "./Convert";
+import { convertToExecForm } from "./ConvertBinary";
 import evalConstExpr from "./ConstEval";
 import { toTruthy, ctz32, popcnt32, rotl32, rotl64, rotr32, rotr64 } from "../helpers/Math";
 import {

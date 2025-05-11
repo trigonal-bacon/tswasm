@@ -3,7 +3,7 @@ import { WASMExternalGlobal } from "../interface/Global";
 
 import * as fs from "fs";
 
-const buf = fs.readFileSync("emscripten/a.out.wasm");
+const buf = fs.readFileSync("../emscripten/a.out.wasm");
 
 const buf2 = new Uint8Array(buf.length);
 for (let i = 0; i < buf.length; ++i) buf2[i] = buf[i];

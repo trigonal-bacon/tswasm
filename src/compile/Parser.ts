@@ -359,18 +359,29 @@ export default class WASMParser {
                 case WASMOPCode.op_memory_size: case WASMOPCode.op_memory_grow:
                 case WASMOPCode.op_memory_copy: case WASMOPCode.op_memory_fill:
                     currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint8()));
-                    break;
-                case WASMOPCode.op_i32_load: case WASMOPCode.op_i32_load8_s: case WASMOPCode.op_i32_load8_u: case WASMOPCode.op_i32_load16_s: case WASMOPCode.op_i32_load16_u:
-                case WASMOPCode.op_i64_load: case WASMOPCode.op_i64_load8_s: case WASMOPCode.op_i64_load8_u: case WASMOPCode.op_i64_load16_s: case WASMOPCode.op_i64_load16_u: case WASMOPCode.op_i64_load32_s: case WASMOPCode.op_i64_load32_u:
+                    break;                
+                case WASMOPCode.op_i32_load8_s: case WASMOPCode.op_i32_load8_u:
+                case WASMOPCode.op_i64_load8_s: case WASMOPCode.op_i64_load8_u:
+                case WASMOPCode.op_i32_store8: case WASMOPCode.op_i32_store16:
+                case WASMOPCode.op_i64_store8:
+                case WASMOPCode.op_i32_load16_s: case WASMOPCode.op_i32_load16_u:
+                case WASMOPCode.op_i64_load16_s: case WASMOPCode.op_i64_load16_u:
+                case WASMOPCode.op_i64_store16:
+                case WASMOPCode.op_i32_load:
+                case WASMOPCode.op_i64_load32_s: case WASMOPCode.op_i64_load32_u:
                 case WASMOPCode.op_f32_load:
-                case WASMOPCode.op_f64_load:
-                case WASMOPCode.op_i32_store: case WASMOPCode.op_i32_store8: case WASMOPCode.op_i32_store16:
-                case WASMOPCode.op_i64_store: case WASMOPCode.op_i64_store8: case WASMOPCode.op_i64_store16: case WASMOPCode.op_i64_store32:
+                case WASMOPCode.op_i32_store: 
+                case WASMOPCode.op_i64_store32:
                 case WASMOPCode.op_f32_store:
-                case WASMOPCode.op_f64_store:
-                    currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint32()));
+                case WASMOPCode.op_i64_load:   
+                case WASMOPCode.op_f64_load:
+                case WASMOPCode.op_i64_store:   
+                case WASMOPCode.op_f64_store: {
+                    const align = lexer.read_uint32();
+                    currInstr.immediates.push(WASMValue.createU32Literal(align));
                     currInstr.immediates.push(WASMValue.createU32Literal(lexer.read_uint32()));
                     break;
+                }
                 case WASMOPCode.op_i32_const:
                     currInstr.immediates.push(WASMValue.createI32Literal(lexer.read_int32()));
                     break;
