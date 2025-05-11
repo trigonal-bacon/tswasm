@@ -1,8 +1,8 @@
 import { FixedLengthReader } from "../helpers/Lexer";
 import { WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
-import { WASMFuncType, WASMSection2Content, WASMSection4Content } from "../spec/sections";
-import { typeArrayToString, WASMValueType } from "../spec/types";
+import { WASMFuncType, WASMSection2Content, WASMSection4Content } from "../spec/Sections";
+import { typeArrayToString, WASMValueType } from "../spec/Types";
 import { WASMExternalGlobal } from "../interface/Global";
 import WASMMemory from "../interface/Memory";
 import WASMTable from "../interface/Table";
@@ -18,7 +18,8 @@ import {
     toConvert, fromConvert
 } from "../helpers/Conversion";
 
-import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length } from "./Alloc";
+import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length, newValue } from "./Alloc";
+import { LinkError, RuntimeError } from "../spec/Error";
 
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
@@ -38,7 +39,7 @@ function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
 
 function popSafe(arr : Array<WASMValue>) : WASMValue {
     if (arr.length === 0) 
-        throw new Error("Stack empty, cannot pop");
+        throw new RuntimeError("Stack empty, cannot pop");
     const v = arr[arr.length - 1];
     --arr.length;
     return v;
@@ -102,12 +103,12 @@ export class Program {
         if (repr.has_section(9)) {
             //elems
             if (this.tables.length === 0)
-                throw new Error("Expected a table initialization");
+                throw new LinkError("Expected a table initialization");
             for (const elem of repr.section9.content) {
                 //using passive tables
                 const offset = evalConstExpr(elem.offset).u32;
                 if (offset + elem.funcrefs.length > this.tables[0].length)
-                    throw new Error("Out of Bounds element initialization");
+                    throw new LinkError("Out of Bounds element initialization");
                 for (let i = 0; i < elem.funcrefs.length; ++i)
                     this.tables[0].elements[i + offset] = elem.funcrefs[i];
             }
@@ -117,7 +118,7 @@ export class Program {
             for (const data of repr.section11.content) {
                 const offset = evalConstExpr(data.offset).u32;
                 if (offset + data.data.length > this.memory.length)
-                    throw new Error("Out of bounds data initialization");
+                    throw new LinkError("Out of bounds data initialization");
                 this.memory._buffer.set(data.data, offset);
             }
         }
@@ -182,20 +183,20 @@ export class Program {
             const module = desc.module;
             const name = desc.name;
             if (typeof imports[module] !== "object")
-                throw new Error(`Imported module [${module}] does not exist or is not an object`);
+                throw new LinkError(`Imported module [${module}] does not exist or is not an object`);
             switch (desc.kind) {
                 case 0: {
                     //func
                     const func = imports[module][name];
                     if (!(func instanceof Function)) 
-                        throw new Error(`Invalid import ${module}.${name}: expected function`);
+                        throw new LinkError(`Invalid import ${module}.${name}: expected function`);
                     this.importedFuncs.push(func);
                     break;
                 }
                 case 1: {
                     const table = imports[module][name];
                     if (!(table instanceof WASMTable))
-                        throw new Error(`Invalid import ${module}.${name}: expected WebAssembly.table`);
+                        throw new LinkError(`Invalid import ${module}.${name}: expected WebAssembly.table`);
                     this.tables.push(table);
                     break;
                 }
@@ -203,11 +204,11 @@ export class Program {
                     //memory, we assume there is only 1
                     const mem = imports[module][name];
                     if (!(mem instanceof WASMMemory))
-                        throw new Error(`Invalid import ${module}.${name}: expected WebAssembly.Memory`);
+                        throw new LinkError(`Invalid import ${module}.${name}: expected WebAssembly.Memory`);
                     if (mem.init !== desc.limits.min)
-                        throw new Error("Imported memory initial size wrong")
+                        throw new LinkError("Imported memory initial size wrong")
                     if (mem.max !== desc.limits.max)
-                        throw new Error("Imported memory maximum size wrong")
+                        throw new LinkError("Imported memory maximum size wrong")
                     this.memory = mem;
                     break;
                 }
@@ -215,23 +216,23 @@ export class Program {
                     //global
                     const glob = imports[module][name];
                     if (!(glob instanceof WASMExternalGlobal)) 
-                        throw new Error(`Invalid import ${module}.${name}: expected WebAssembly.Global`);
+                        throw new LinkError(`Invalid import ${module}.${name}: expected WebAssembly.Global`);
                     if (glob._value.type !== desc.type)
-                        throw new Error("Imported global type mismatch");
+                        throw new LinkError("Imported global type mismatch");
                     ++importGlobalCount;
                     this.globals.push(glob._value);
                     break;
                 }
                 default:
-                    throw new Error("Unexpected import type");
+                    throw new LinkError("Unexpected import type");
                     break;
             }
         }
         if (this.importFuncCount !== this.importedFuncs.length)
-            throw new Error(`Function import count mismatch: expected ${this.importFuncCount}, got ${this.importedFuncs.length}`);
+            throw new LinkError(`Function import count mismatch: expected ${this.importFuncCount}, got ${this.importedFuncs.length}`);
         
         if (this.importGlobalCount !== importGlobalCount)
-            throw new Error(`Global import count mismatch: expected ${this.importGlobalCount}, got ${importGlobalCount}`);
+            throw new LinkError(`Global import count mismatch: expected ${this.importGlobalCount}, got ${importGlobalCount}`);
     }
 
     initializeTables(tableDesc : Array<WASMSection4Content>) : void {
@@ -241,10 +242,13 @@ export class Program {
 
     run(entry : number, args : Array<WASMValue>) : bigint | number | undefined {
         if (entry < 0 || entry >= this.funcCount + this.importFuncCount)
-            throw new Error("Invalid function index");
+            throw new RangeError("Function index out of range");
         if (entry < this.importFuncCount) {
-            console.warn("Attempting to start with an imported function: returning 0 for now");
-            return 0; //import function call?
+            console.warn("Attempting to expernally call an imported function");
+            const argArr : Array<any> = new Array(this.funcTypes[entry].args.length);
+            for (let i = argArr.length; i > 0; --i) 
+                argArr[i] = args[i].numeric;
+            return this.importedFuncs[entry](...argArr);
         }
         const reader = new FixedLengthReader(this.code);
         readFuncPtr(reader, entry - this.importFuncCount);
@@ -255,11 +259,11 @@ export class Program {
         let localC = reader.read_u32();
         let locals : Array<WASMValue> = new Array(argC + localC);
         if (argC !== args.length) 
-            throw new Error(`Expected ${argC} arguments to function call, got ${args.length}`);
+            throw new RangeError(`Expected ${argC} arguments to function call, got ${args.length}`);
 
         for (let i = 0; i < argC; ++i) {
             if (this.funcTypes[entry].args[i] !== args[i].type) 
-                throw new Error(`Function expected [${typeArrayToString(this.funcTypes[entry].args)}], got [${typeArrayToString(args.map(x => x.type))}]`)
+                throw new TypeError(`Function expected [${typeArrayToString(this.funcTypes[entry].args)}], got [${typeArrayToString(args.map(x => x.type))}]`)
             locals[i] = args[i];
         }
         for (let i = 0; i < localC; ++i) 
@@ -268,7 +272,7 @@ export class Program {
             const instr = reader.read_instr();
             switch (instr) {
                 case WASMOPCode.op_unreachable:
-                    throw new Error("Unreachable");
+                    throw new RuntimeError("Unreachable");
                 case WASMOPCode.op_nop:
                 case WASMOPCode.op_block:
                 case WASMOPCode.op_loop:
@@ -304,14 +308,13 @@ export class Program {
                 }
                 case WASMOPCode.op_return: {
                     if (callStack.length === 0) {
-                        console.log(__debug_val_length());
                         if (this.funcTypes[entry].ret !== WASMValueType.nil) {
                             if (valueStack.length !== 1) 
-                                throw new Error(`Stack size ${valueStack.length} not exactly 1`);
-                            const retval = popSafe(valueStack);
-                            return retval.numeric;
+                                throw new RuntimeError(`Stack size ${valueStack.length} not exactly 1`);
+                            return popSafe(valueStack).numeric;
                         }
-                        if (valueStack.length !== 0) throw new Error("Stack expected to be empty");
+                        if (valueStack.length !== 0)
+                            throw new RuntimeError("Stack expected to be empty");
                         return;
                     }
                     else {
@@ -364,9 +367,9 @@ export class Program {
                 case WASMOPCode.op_call_indirect: {
                     const tableidx = popSafe(valueStack).i32;
                     if (this.tables.length === 0)
-                        throw new Error(`No table to index into for call_indirect`);
+                        throw new RuntimeError(`No table to index into for call_indirect`);
                     if (tableidx < 0 || tableidx >= this.tables[0].length)
-                        throw new Error(`Table index ${tableidx} out of bounds`);
+                        throw new RuntimeError(`Table index ${tableidx} out of bounds`);
                     const funcIdx = this.tables[0].get(tableidx);
                     if (funcIdx < this.importFuncCount) {
                         //imported func call
@@ -418,36 +421,38 @@ export class Program {
                 }
                 case WASMOPCode.op_local_get: {
                     const idx = reader.read_u32();
-                    if (idx >= locals.length) throw new Error(`Local index ${idx} OOB`);
+                    if (idx >= locals.length) 
+                        throw new RuntimeError(`Local index ${idx} OOB`);
                     pushSafe(valueStack, locals[idx]);
                     break;
                 }
                 case WASMOPCode.op_local_set: {
                     const idx = reader.read_u32();
-                    if (idx >= locals.length) throw new Error(`Local index ${idx} OOB`);
-                    locals[idx] = cloneValue(popSafe(valueStack));
+                    if (idx >= locals.length) 
+                        throw new RuntimeError(`Local index ${idx} OOB`);
+                    locals[idx] = popSafe(valueStack);
                     break;
                 }
                 case WASMOPCode.op_local_tee: {
                     const idx = reader.read_u32();
                     if (idx >= locals.length) 
-                        throw new Error(`Local index ${idx} OOB`);
+                        throw new RuntimeError(`Local index ${idx} OOB`);
                     const x = popSafe(valueStack);
-                    locals[idx] = cloneValue(x);
+                    locals[idx] = x;
                     pushSafe(valueStack, x);
                     break;
                 }
                 case WASMOPCode.op_global_get: {
                     const idx = reader.read_u32();
                     if (idx >= this.globals.length) 
-                        throw new Error(`Global index ${idx} OOB`);
+                        throw new RuntimeError(`Global index ${idx} OOB`);
                     pushSafe(valueStack, this.globals[idx]);
                     break;
                 }
                 case WASMOPCode.op_global_set: {
                     const idx = reader.read_u32();
                     if (idx >= this.globals.length)
-                        throw new Error(`Global index ${idx} OOB`);
+                        throw new RuntimeError(`Global index ${idx} OOB`);
                     const x = popSafe(valueStack);
                     this.globals[idx].set(x);
                     break;
@@ -896,7 +901,7 @@ export class Program {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
                     if (y === 0)
-                        throw new Error('Division by 0');
+                        throw new RuntimeError('Division by 0');
                     pushSafe(valueStack, newI32(x / y));
                     break;
                 }
@@ -904,7 +909,7 @@ export class Program {
                     const y = popSafe(valueStack).i32 >>> 0;
                     const x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
-                        throw new Error('Division by 0');
+                        throw new RuntimeError('Division by 0');
                     pushSafe(valueStack, newI32(x / y));
                     break;
                 }
@@ -912,7 +917,7 @@ export class Program {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
                     if (y === 0)
-                        throw new Error('Remainder by 0');
+                        throw new RuntimeError('Remainder by 0');
                     pushSafe(valueStack, newI32(x % y));
                     break;
                 }
@@ -920,7 +925,7 @@ export class Program {
                     const y = popSafe(valueStack).i32 >>> 0;
                     const x = popSafe(valueStack).i32 >>> 0;
                     if (y === 0)
-                        throw new Error('Remainder by 0');
+                        throw new RuntimeError('Remainder by 0');
                     pushSafe(valueStack, newI32(x % y));
                     break;
                 }
@@ -1015,7 +1020,7 @@ export class Program {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
-                        throw new Error(`Division by 0`);
+                        throw new RuntimeError(`Division by 0`);
                     pushSafe(valueStack, newI64(x / y));
                     break;
                 }
@@ -1025,7 +1030,7 @@ export class Program {
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
                     if (y === BigInt(0))
-                        throw new Error(`Division by 0`);
+                        throw new RuntimeError(`Division by 0`);
                     pushSafe(valueStack, newI64(x / y));
                     break;
                 }
@@ -1033,7 +1038,7 @@ export class Program {
                     const y = popSafe(valueStack).i64;
                     const x = popSafe(valueStack).i64;
                     if (y === BigInt(0))
-                        throw new Error(`Remainder by 0`);
+                        throw new RuntimeError(`Remainder by 0`);
                     pushSafe(valueStack, newI64(x % y));
                     break;
                 }
@@ -1043,7 +1048,7 @@ export class Program {
                     CONVERSION_INT64[0] = popSafe(valueStack).i64;
                     const x = CONVERSION_UINT64[0];
                     if (y === BigInt(0))
-                        throw new Error(`Remainder by 0`);
+                        throw new RuntimeError(`Remainder by 0`);
                     pushSafe(valueStack, newI64(x % y));
                     break;
                 }
@@ -1264,28 +1269,28 @@ export class Program {
                 case WASMOPCode.op_i32_trunc_f32_s: {
                     const x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
-                        throw new Error('Float unrepresentable as a signed int32');
+                        throw new RuntimeError('Float unrepresentable as a signed int32');
                     pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f32_u: {
                     const x = Math.fround(Math.trunc(popSafe(valueStack).f32));
                     if (x < 0 || x > 0xFFFFFFFF)
-                        throw new Error('Float unrepresentable as an unsigned int32');
+                        throw new RuntimeError('Float unrepresentable as an unsigned int32');
                     pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f64_s: {
                     const x = Math.trunc(popSafe(valueStack).f64);
                     if (x < -0x80000000 || x > 0x7FFFFFFF)
-                        throw new Error('Float unrepresentable as a signed int32');
+                        throw new RuntimeError('Float unrepresentable as a signed int32');
                     pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
                 case WASMOPCode.op_i32_trunc_f64_u: {
                     const x = Math.trunc(popSafe(valueStack).f64);
                     if (x < 0 || x > 0xFFFFFFFF)
-                        throw new Error('Float unrepresentable as an unsigned int32');
+                        throw new RuntimeError('Float unrepresentable as an unsigned int32');
                     pushSafe(valueStack, newI32(x >> 0));
                     break;
                 }
@@ -1302,7 +1307,7 @@ export class Program {
                 case WASMOPCode.op_i64_trunc_f32_s: {
                     const x = BigInt(Math.fround(Math.trunc(popSafe(valueStack).f32)));
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
-                        throw new Error('Float unrepresentable as a signed int64');
+                        throw new RuntimeError('Float unrepresentable as a signed int64');
                     CONVERSION_INT64[0] = x;
                     pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
@@ -1310,7 +1315,7 @@ export class Program {
                 case WASMOPCode.op_i64_trunc_f32_u: {
                     const x = BigInt(Math.fround(Math.trunc(popSafe(valueStack).f32)));
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
-                        throw new Error('Float unrepresentable as a signed int64');
+                        throw new RuntimeError('Float unrepresentable as a signed int64');
                     CONVERSION_UINT64[0] = x;
                     pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
@@ -1318,7 +1323,7 @@ export class Program {
                 case WASMOPCode.op_i64_trunc_f64_s: {
                     const x = BigInt(Math.trunc(popSafe(valueStack).f64));
                     if (x < -BigInt("0x8000000000000000") || x > BigInt("0x7FFFFFFFFFFFFFFF"))
-                        throw new Error('Float unrepresentable as a signed int64');
+                        throw new RuntimeError('Float unrepresentable as a signed int64');
                     CONVERSION_INT64[0] = x;
                     pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
@@ -1326,7 +1331,7 @@ export class Program {
                 case WASMOPCode.op_i64_trunc_f64_u: {
                     const x = BigInt(Math.trunc(popSafe(valueStack).f64));
                     if (x < BigInt(0) || x > BigInt("0xFFFFFFFFFFFFFFFF"))
-                        throw new Error('Float unrepresentable as a signed int64');
+                        throw new RuntimeError('Float unrepresentable as a signed int64');
                     CONVERSION_UINT64[0] = x;
                     pushSafe(valueStack, newI64(CONVERSION_INT64[0]));
                     break;
@@ -1444,9 +1449,8 @@ export class Program {
                 case WASMOPCode.op_end:
                     //these instructions are removed in the resulting code
                 default:
-                    throw new Error(`Invalid opcode ${instr}`)
+                    throw new RuntimeError(`Invalid opcode ${instr}`)
             }
         }
-        //throw new Error(`Unreachable`);
     }
 }

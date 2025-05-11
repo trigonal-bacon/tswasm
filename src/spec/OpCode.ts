@@ -1,4 +1,4 @@
-import { WASMValueType } from "./types";
+import { WASMValueType } from "./Types";
 
 export enum WASMOPCode {
     op_unreachable = 0x00,

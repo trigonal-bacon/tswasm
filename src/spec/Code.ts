@@ -1,5 +1,5 @@
 import { WASMOPCode } from "./OpCode";
-import { typeToString, WASMValueType } from "./types";
+import { typeToString, WASMValueType } from "./Types";
 
 import {
     CONVERSION_UINT8, CONVERSION_INT8, 
@@ -17,7 +17,7 @@ export class WASMValue {
     bigval : bigint = BigInt(0);
     set(v : WASMValue) {
         if (this.type !== v.type)
-            throw new Error(`Internal type mismatch: expected ${typeToString(this.type)}, got ${typeToString(v.type)}`);
+            throw new TypeError(`Internal type mismatch: expected ${typeToString(this.type)}, got ${typeToString(v.type)}`);
         this.value = v.value;
         this.bigval = v.bigval;
     }

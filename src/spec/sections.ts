@@ -1,5 +1,5 @@
 import { InstrNode } from "./Code";
-import { WASMValueType, WASMDeclType, WASMRefType, WASMGlobalType } from "./types";
+import { WASMValueType, WASMDeclType, WASMRefType, WASMGlobalType } from "./Types";
 
 export class WASMSection<SectionContent> {
     content : Array<SectionContent> = [];

@@ -1,5 +1,5 @@
 import { WASMValue } from "../spec/Code";
-import { WASMValueType } from "../spec/types";
+import { WASMValueType } from "../spec/Types";
 
 export class WASMExternalGlobal {
     _value : WASMValue = new WASMValue();

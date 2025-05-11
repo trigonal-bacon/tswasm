@@ -2,8 +2,9 @@ import WASMRepr from "../compile/Repr";
 
 import { FixedLengthWriter } from "../helpers/Lexer";
 import { InstrNode, WASMValue } from "../spec/Code";
+import { CompileError } from "../spec/Error";
 import { WASMOPCode } from "../spec/OpCode";
-import { WASMValueType } from "../spec/types";
+import { WASMValueType } from "../spec/Types";
 
 function writeWASMValue(writer : FixedLengthWriter, value : WASMValue) : void {
     switch (value.type) {
@@ -36,7 +37,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();
-                if (toWrite == undefined) throw new Error("Empty blockPtrStack : impossible");
+                if (toWrite == undefined)
+                    throw new CompileError(`Empty blockPtrStack, impossible`);
                 for (const ptr of toWrite) {
                     writer.retroactive_write_u32(writer.at, ptr); //jump instructions
                 }
@@ -58,7 +60,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                     writer.retroactive_write_u32(writer.at, anchor); //skip on fail
                 }
                 const toWrite = blockPtrStack.pop();
-                if (toWrite == undefined) throw new Error("Empty blockPtrStack : impossible");
+                if (toWrite == undefined) 
+                    throw new CompileError("Empty blockPtrStack, impossible");
                 for (const ptr of toWrite) {
                     writer.retroactive_write_u32(writer.at, ptr); //loop back
                 }
@@ -69,7 +72,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();
-                if (toWrite == undefined) throw new Error("Empty blockPtrStack : impossible");
+                if (toWrite == undefined) 
+                    throw new CompileError("Empty blockPtrStack, impossible");
                 for (const ptr of toWrite) {
                     writer.retroactive_write_u32(anchor, ptr); //loop back
                 }
@@ -78,7 +82,8 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_br_if:
             case WASMOPCode.op_br: {
                 const depth : number = instr.immediates[0].u32;
-                if (depth >= blockPtrStack.length) throw new Error("Branch depth OOB: " + depth);
+                if (depth >= blockPtrStack.length) 
+                    throw new RangeError(`Branch depth ${depth} OOB, max is ${blockPtrStack.length - 1}`);
                 blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
                 writer.write_u32(0); //temporarily write 0
                 break;
@@ -89,7 +94,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                     const immediate = instr.immediates[i + 1];
                     const depth : number = immediate.u32;
                     if (depth >= blockPtrStack.length) 
-                        throw new Error("Branch depth OOB: " + depth + " | " + blockPtrStack.length);
+                        throw new RangeError(`Branch depth ${depth} OOB, max is ${blockPtrStack.length - 1}`);
                     blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
                     writer.write_u32(0); //temporarily write 0
                 }

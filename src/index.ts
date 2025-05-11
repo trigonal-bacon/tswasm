@@ -9,7 +9,7 @@ interface InstantiateResult {
     instance : Program
 }
 
-export const WebAssembly = {
+const WebAssembly = {
     compile(buf : ArrayBuffer) {
         return new Promise((res, rej) : void => {
             //if (!(buf instanceof ArrayBuffer))
@@ -35,3 +35,5 @@ export const WebAssembly = {
     LinkError,
     RuntimeError,
 }
+
+export default WebAssembly;

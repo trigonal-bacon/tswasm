@@ -1,5 +1,6 @@
 import { Reader } from "../helpers/Lexer";
 import { InstrNode, WASMValue } from "../spec/Code";
+import { CompileError } from "../spec/Error";
 import { WASMOPCode, WASMOPDefs } from "../spec/OpCode";
 import { 
     WASMFuncType,
@@ -13,8 +14,8 @@ import {
     WASMSection11Content,
     WASMSection9Content,
     WASMSection6Content,
-} from "../spec/sections";
-import { WASMValueType, WASMDeclType, WASMGlobalType, WASMRefType } from "../spec/types";
+} from "../spec/Sections";
+import { WASMValueType, WASMDeclType, WASMGlobalType, WASMRefType } from "../spec/Types";
 import WASMRepr from "./Repr";
 
 function readLimit(lexer : Reader) : WASMLimit {
@@ -25,7 +26,7 @@ function readLimit(lexer : Reader) : WASMLimit {
         limit.min = lexer.read_uint32();
         limit.max = lexer.read_uint32();
         if (limit.min > limit.max)
-            throw new Error(`Limit min ${limit.min} greater than max ${limit.max}`);
+            throw new RangeError(`Limit min ${limit.min} greater than max ${limit.max}`);
     }
     else {
         limit.min = limit.max = lexer.read_uint32();
@@ -43,7 +44,7 @@ function readValueType(lexer : Reader) : WASMValueType {
         case WASMValueType.nil:
             return t;
     }
-    throw new Error(`Invalid value type ${t}`);
+    throw new TypeError(`Invalid value type ${t}`);
 }
 
 function readRefType(lexer : Reader) : WASMRefType {
@@ -53,7 +54,7 @@ function readRefType(lexer : Reader) : WASMRefType {
         case WASMRefType.externref:
             return t;
     }
-    throw new Error(`Invalid ref type ${t}`);
+    throw new TypeError(`Invalid ref type ${t}`);
 }
 
 export default class WASMParser {
@@ -68,9 +69,9 @@ export default class WASMParser {
         lexer.read_float64(); //magic header
         while (lexer.has()) {
             const section = lexer.read_uint8();
-            if (section > 12) throw new Error(`Trying to parse invalid section ${section}`);
+            if (section > 12) throw new CompileError(`Trying to parse invalid section ${section}`);
             if (repr.has_section(section)) 
-                throw new Error(`Section ${section} already exists`);
+                throw new CompileError(`Section ${section} already exists`);
 
             repr.sectionLengths[section] = lexer.read_uint32();
             const anchor = lexer.at;
@@ -91,10 +92,10 @@ export default class WASMParser {
                 default: break;
             }
             if (lexer.at !== anchor + repr.sectionLengths[section]) 
-                throw new Error(`Section ${section} has malformed length ${repr.sectionLengths[section]}`);
+                throw new RangeError(`Section ${section} has malformed length ${repr.sectionLengths[section]}`);
         }
         if (lexer.at !== lexer.buf.length)
-            throw new Error(`Prematurely finished parsing the binary`);
+            throw new CompileError(`Prematurely finished parsing the binary`);
         repr.validate();
         return;
     }
@@ -110,7 +111,7 @@ export default class WASMParser {
             const content = new WASMFuncType();
             const validate = lexer.read_uint8();
             if (validate !== 0x60)
-                throw new Error(`Expected 0x60 for functype, got ${validate}`);
+                throw new CompileError(`Expected 0x60 for functype, got ${validate}`);
             const paramLen = lexer.read_uint32();
             for (let j = 0; j < paramLen; ++j) {
                 const valtype = readValueType(lexer);
@@ -122,12 +123,20 @@ export default class WASMParser {
             else if (retLen === 1) 
                 content.ret = readValueType(lexer);
             else 
-                throw new Error("Multireturn currently not supported");
+                throw new CompileError("Multireturn currently not supported");
             repr.section1.content.push(content);
         }
     }
 
     parseSection2(repr : WASMRepr) : void {
+        if (repr.has_section(3))
+            throw new CompileError(`Function section declared before import section`);
+        if (repr.has_section(4))
+            throw new CompileError(`Table section declared before import section`);
+        if (repr.has_section(5))
+            throw new CompileError(`Memory section declared before import section`);
+        if (repr.has_section(6))
+            throw new CompileError(`Global section declared before import section`);
         const lexer = this.lexer;
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
@@ -162,7 +171,7 @@ export default class WASMParser {
                     break;
                 }
                 default:
-                    throw new Error(`Invalid import type`);
+                    throw new CompileError(`Invalid import type`);
             }
             repr.section2.content.push(content);
         }
@@ -224,7 +233,7 @@ export default class WASMParser {
             content.name = lexer.read_string();
             const kind = lexer.read_uint8();
             if (kind >= 4)
-                throw new Error(`Invalid export type ${kind}`);
+                throw new CompileError(`Invalid export type ${kind}`);
             content.kind = kind;
             content.index = lexer.read_uint32();
             repr.section7.content.push(content);
@@ -286,7 +295,7 @@ export default class WASMParser {
                 case 1:
                     break;
                 default:
-                    throw new Error(`Invalid data flag ${kind}`);
+                    throw new CompileError(`Invalid data flag ${kind}`);
             }
             const len = lexer.read_uint32();
             content.data = this.bin.slice(lexer.at, lexer.at += len);
@@ -381,7 +390,7 @@ export default class WASMParser {
                     break;
                 default:
                     if (!(instr_op in WASMOPDefs))
-                        throw new Error(`Invalid opcode ${instr_op}`);
+                        throw new CompileError(`Invalid opcode ${instr_op}`);
                     break;
             }
         }
