@@ -9,29 +9,36 @@ interface InstantiateResult {
     instance : Program
 }
 
+
 const WebAssembly = {
-    compile(buf : ArrayBuffer) {
+    compile(buf : any) {
         return new Promise((res, rej) : void => {
-            //if (!(buf instanceof ArrayBuffer))
-                //return rej(new Error(`Cannot instantiate a non-buffer object`));
-            const module = new WASMModule(buf);
+            if (!(buf instanceof ArrayBuffer) && !(buf instanceof Uint8Array))
+                return rej(new Error(`Cannot instantiate a non-buffer object`));
+            const module = new WASMModule(new Uint8Array(buf).buffer);
             res(module);
         });
     },
-    instantiate(buf : ArrayBuffer, imports = {}) {
+    instantiate(buf : any, imports = {}) {
         return new Promise((res : (x : InstantiateResult) => any, rej) => {
-            //if (!(buf instanceof ArrayBuffer))
-                //return rej(new Error(`Cannot instantiate a non-buffer object`));
-            const module = new WASMModule(buf);
+            if (!(buf instanceof ArrayBuffer) && !(buf instanceof Uint8Array))
+                return rej(new Error(`Cannot instantiate a non-buffer object`));
+            const module = new WASMModule(new Uint8Array(buf).buffer);
             const instance = new Program(module, imports);
             res({ module, instance });
         });
     },
-    instantiateStreaming(req : Request, imports = {}) {
-        return req.arrayBuffer().then(buf => this.instantiate(buf, imports));
+    async instantiateStreaming(req : Response | Promise<Response>, imports = {}) {
+        if (req instanceof Promise)
+            req = await req;
+        const buf = await req.arrayBuffer();
+        return await this.instantiate(buf, imports);
     },
-    compileStreaming(req : Request) {
-        return req.arrayBuffer().then(this.compile);
+    async compileStreaming(req : Response | Promise<Response>) {
+        if (req instanceof Promise)
+            req = await req;
+        const buf = await req.arrayBuffer();
+        return await this.compile(buf);
     },
     Module : WASMModule,
     Instance : Program,

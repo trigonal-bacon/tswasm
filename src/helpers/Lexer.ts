@@ -30,6 +30,13 @@ export class Reader {
         return this.buf[this.at++]; //guaranteed byte
     }
 
+    read_instr() : number {
+        const op = this.read_uint8();
+        if (op === 0xFC)
+            return op | (this.read_uint8() << 8);
+        return op;
+    }
+
     read_uint32() : number {
         CONVERSION_UINT32[0] = 0;
         let shift = 0;
