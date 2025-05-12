@@ -27,8 +27,8 @@ function pushSafe(stack : Array<WASMValueType>, t : WASMValueType) : void {
 
 function __typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : void {
     if (check === WASMValueType.nil) {
-        if (stack.length === 0) return;
-        throw new RangeError(`Expected empty stack, got ${stack.length}`);
+        //do nothing
+        return;
     }
     const top = stack.pop();
     if (top === undefined)
@@ -216,23 +216,25 @@ export default class WASMRepr {
                 }
                 case WASMOPCode.op_br_if:
                     __typeCheckArg(typeStack, WASMValueType.i32);
-                case WASMOPCode.op_br:
+                case WASMOPCode.op_br: {
                     if (args[0].u32 >= block_types.length)
-                        throw new RangeError(`Invalid block depth ${args[0].u32}`);
-                    __typeCheckResult(typeStack, block_types[block_types.length - 1 - args[0].u32]);
+                        throw new RangeError(`Invalid block depth ${args[0].u32}`); 
+                    const blockType = block_types[block_types.length - 1 - args[0].u32];
+                    __typeCheckArg(typeStack, blockType);
                     if (instr.instr === WASMOPCode.op_br) return;
+                    pushSafe(typeStack, blockType);
                     break;
+                }
                 case WASMOPCode.op_br_table: {
                     //error need to check for each individual
                     __typeCheckArg(typeStack, WASMValueType.i32);
-                    __typeCheckResult(typeStack, result_type);
-                    const resultType = block_types[block_types.length - 1 - args[1].u32];
+                    const blockType = block_types[block_types.length - 1 - args[1].u32];
                     for (let i = 1; i < args.length; ++i) 
-                        if (resultType !== block_types[block_types.length - 1 - args[i].u32])
+                        if (blockType !== block_types[block_types.length - 1 - args[i].u32])
                             throw new TypeError(`Block type mismatch`);
 
-                    __typeCheckResult(typeStack, resultType);
-                    break;
+                    __typeCheckArg(typeStack, blockType);
+                    return;
                 }
                 case WASMOPCode.op_if:
                     block_types.push(args[0].u32);
