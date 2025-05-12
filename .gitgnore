@@ -1,5 +1,1 @@
-package-lock.json
 node_modules
-src/test
-src/emscripten
-dist

@@ -28,11 +28,15 @@ const WebAssembly = {
             res({ module, instance });
         });
     },
-    async instantiateStreaming(req : Request, imports = {}) {
+    async instantiateStreaming(req : Response | Promise<Response>, imports = {}) {
+        if (req instanceof Promise)
+            req = await req;
         const buf = await req.arrayBuffer();
         return await this.instantiate(buf, imports);
     },
-    async compileStreaming(req : Request) {
+    async compileStreaming(req : Response | Promise<Response>) {
+        if (req instanceof Promise)
+            req = await req;
         const buf = await req.arrayBuffer();
         return await this.compile(buf);
     },
