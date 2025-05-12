@@ -70,7 +70,6 @@ export default class WASMParser {
         while (lexer.has()) {
             const section = lexer.read_uint8();
             if (section > 12) throw new CompileError(`Trying to parse invalid section ${section}`);
-            console.log(`Parsing section ${section}`);
             if (section !== 0 && repr.has_section(section)) 
                 throw new CompileError(`Section ${section} already exists`);
 
@@ -315,10 +314,9 @@ export default class WASMParser {
         while (true) {
             let instr_op = lexer.read_uint8();
             if (instr_op === WASMOPCode.op_end || instr_op === WASMOPCode.op_else) break;
-            if (instr_op === 0xFC) {
-                console.error(`Multibyte instruction ${instr_op} not supported and may be ignored in interpretation`);
+            if (instr_op === 0xFC) 
                 instr_op |= lexer.read_uint8() << 8;
-            }
+
             const currInstr = new InstrNode();
             instrArray.push(currInstr);
             currInstr.instr = instr_op;

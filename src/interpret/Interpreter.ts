@@ -61,13 +61,11 @@ class StackFrame {
 }
 
 function branchUp(blockFrames : Array<number>, valueStack : Array<WASMValue>, depth : number, toKeep : number) : void {
-    if (blockFrames.length - 1 < depth)
-        throw new RangeError(`Branch depth ${depth} exceeds max depth ${blockFrames.length - 1}`);
+    //if (blockFrames.length - 1 < depth)
+        //throw new RangeError(`Branch depth ${depth} exceeds max depth ${blockFrames.length - 1}`);
     const anchor = blockFrames[blockFrames.length - 1 - depth];
-    //console.log(`Branch depth ${depth}`);
-    if (anchor + toKeep > valueStack.length) 
-        //console.log(blockFrames, typeArrayToString(valueStack.map(x => x.type)));
-        throw new RangeError(`Saved length ${anchor} and toKeep ${toKeep} >= real length ${valueStack.length}`);
+    //if (anchor + toKeep > valueStack.length) 
+        //throw new RangeError(`Saved length ${anchor} and toKeep ${toKeep} >= real length ${valueStack.length}`);
     const top = valueStack.length - toKeep;
     if (toKeep > 0) {
         for (let i = 0; i < toKeep; ++i)
@@ -214,10 +212,9 @@ export class Program {
                 }
             }
         }
-        if (repr.has_section(8)) {
+        if (repr.has_section(8)) 
             //start
             this.run(repr.section8.index, []);
-        }
     }
 
     initializeMemory(start : number, end : number) {
@@ -297,7 +294,7 @@ export class Program {
         if (entry < 0 || entry >= this.funcCount + this.importFuncCount)
             throw new RangeError("Function index out of range");
         if (entry < this.importFuncCount) {
-            console.warn("Attempting to expernally call an imported function");
+            console.warn("Attempting to externally call an imported function");
             const argArr : Array<any> = new Array(this.funcTypes[entry].args.length);
             for (let i = argArr.length; i > 0; --i) 
                 argArr[i] = args[i].numeric;
@@ -338,13 +335,11 @@ export class Program {
                 case WASMOPCode.op_else:
                 case WASMOPCode.op_block:
                 case WASMOPCode.op_loop:
-                    //console.log(`Branch ${blockFrames.length} create [${valueStack.length}]`);
                     blockFrames.push(valueStack.length);
                 case WASMOPCode.op_nop:
                     break;
                 case WASMOPCode.op_end:
                     blockFrames.pop();
-                    //console.log(`Branch ${blockFrames.length} destroy [${valueStack.length}]`);
                     break;
                 case WASMOPCode.op_br: {
                     const numKeep = reader.read_u32();
@@ -400,59 +395,24 @@ export class Program {
                         (reader.at = frame.pc) &&
                         (entry = frame.func);
                         //branch x - 1 times;
-                        //console.log(`Destroying ${branchDepth} branches on return`);
                         if (branchDepth > 0)
                             branchUp(blockFrames, valueStack, branchDepth - 1, numKeep);
                     }
                     break;
                 }
+                case WASMOPCode.op_call_indirect:
                 case WASMOPCode.op_call: {
-                    const funcIdx = reader.read_u32();
-                    if (funcIdx < this.importFuncCount) {
-                        //imported func call
-                        const argArr : Array<any> = new Array(this.funcTypes[funcIdx].args.length);
-                        for (let i = argArr.length; i > 0; --i) 
-                            argArr[i - 1] = popSafe(valueStack).numeric;
-                        const ret = this.importedFuncs[funcIdx](...argArr);
-                        switch(this.funcTypes[funcIdx].ret) {
-                            case WASMValueType.i32:
-                                pushSafe(valueStack, newI32(ret));
-                                break;
-                            case WASMValueType.f32:
-                                pushSafe(valueStack, newF32(ret));
-                                break;
-                            case WASMValueType.i64:
-                                pushSafe(valueStack, newI64(BigInt(ret)));
-                                break;
-                            case WASMValueType.f64:
-                                pushSafe(valueStack, newF64(ret));
-                                break;
-                            case WASMValueType.nil:
-                            default:
-                                break;
-                        }
-                        break;
+                    let funcIdx : number = 0;
+                    if (instr === WASMOPCode.op_call) 
+                        funcIdx = reader.read_u32();
+                    else {
+                        const tableIdx = popSafe(valueStack).i32;
+                        if (this.tables.length === 0)
+                            throw new RuntimeError(`No table to index into for call_indirect`);
+                        if (tableIdx < 0 || tableIdx >= this.tables[0].length)
+                            throw new RuntimeError(`Table index ${tableIdx} out of bounds`);
+                        funcIdx = this.tables[0].elements[tableIdx];
                     }
-                    const frame = new StackFrame(locals, reader.at, entry);
-                    callStack.push(frame);
-                    entry = funcIdx;
-                    readFuncPtr(reader, funcIdx - this.importFuncCount);
-                    const argC = reader.read_u32();
-                    const localC = reader.read_u32();
-                    locals = new Array(argC + localC);
-                    for (let i = argC; i > 0; --i)
-                        locals[i - 1] = cloneValue(popSafe(valueStack));
-                    for (let i = 0; i < localC; ++i)
-                        locals[i + argC] = new WASMValue(); //error typecheck, won't matter
-                    break;
-                }
-                case WASMOPCode.op_call_indirect: {
-                    const tableidx = popSafe(valueStack).i32;
-                    if (this.tables.length === 0)
-                        throw new RuntimeError(`No table to index into for call_indirect`);
-                    if (tableidx < 0 || tableidx >= this.tables[0].length)
-                        throw new RuntimeError(`Table index ${tableidx} out of bounds`);
-                    const funcIdx = this.tables[0].elements[tableidx];
                     if (funcIdx < this.importFuncCount) {
                         //imported func call
                         const argArr : Array<any> = new Array(this.funcTypes[funcIdx].args.length);

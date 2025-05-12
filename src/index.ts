@@ -27,6 +27,12 @@ const WebAssembly = {
             res({ module, instance });
         });
     },
+    instantiateStreaming(req : Request, imports = {}) {
+        return req.arrayBuffer().then(buf => this.instantiate(buf, imports));
+    },
+    compileStreaming(req : Request) {
+        return req.arrayBuffer().then(this.compile);
+    },
     Module : WASMModule,
     Instance : Program,
     Table : WASMTable,
