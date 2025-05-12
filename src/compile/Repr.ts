@@ -20,6 +20,8 @@ import { typeToString, WASMGlobalType, WASMValueType } from "../spec/Types";
 function pushSafe(stack : Array<WASMValueType>, t : WASMValueType) : void {
     if (t === undefined)
         throw new Error(`Impossible push`);
+    if (t === WASMValueType.nil)
+        return;
     stack.push(t);
 }
 
@@ -196,8 +198,7 @@ export default class WASMRepr {
                     const funcType = this.section1.content[this.funcTypes[idx]];
                     for (let i = funcType.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, funcType.args[i - 1]);
-                    if (funcType.ret !== WASMValueType.nil)
-                        pushSafe(typeStack, funcType.ret);
+                    pushSafe(typeStack, funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
@@ -210,8 +211,7 @@ export default class WASMRepr {
                     const funcType = this.section1.content[typeidx];
                     for (let i = funcType.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, funcType.args[i - 1]);
-                    if (funcType.ret !== WASMValueType.nil)
-                        pushSafe(typeStack, funcType.ret);
+                    pushSafe(typeStack, funcType.ret);
                     break;
                 }
                 case WASMOPCode.op_br_if:
@@ -222,21 +222,25 @@ export default class WASMRepr {
                     __typeCheckResult(typeStack, block_types[block_types.length - 1 - args[0].u32]);
                     if (instr.instr === WASMOPCode.op_br) return;
                     break;
-                case WASMOPCode.op_br_table:
+                case WASMOPCode.op_br_table: {
                     //error need to check for each individual
                     __typeCheckArg(typeStack, WASMValueType.i32);
                     __typeCheckResult(typeStack, result_type);
+                    const resultType = block_types[block_types.length - 1 - args[1].u32];
                     for (let i = 1; i < args.length; ++i) 
-                        __typeCheckResult(typeStack, block_types[block_types.length - 1 - args[i].u32]);
+                        if (resultType !== block_types[block_types.length - 1 - args[i].u32])
+                            throw new TypeError(`Block type mismatch`);
+
+                    __typeCheckResult(typeStack, resultType);
                     break;
+                }
                 case WASMOPCode.op_if:
                     block_types.push(args[0].u32);
                     __typeCheckArg(typeStack, WASMValueType.i32);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
                     if (instr.hasElse)
                         this.__validateCodeBlockRecursive(instr.child2, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil)
-                        pushSafe(typeStack, args[0].u32);
+                    pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_drop:
@@ -245,15 +249,16 @@ export default class WASMRepr {
                     typeStack.pop();
                     break;
                 case WASMOPCode.op_loop:
+                    //the block type itself should be nil because all branches go back to it
                     block_types.push(WASMValueType.nil);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) pushSafe(typeStack, args[0].u32);
+                    pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_block:
                     block_types.push(args[0].u32);
                     this.__validateCodeBlockRecursive(instr.child, locals, block_types, args[0].u32, func_return);
-                    if (args[0].u32 !== WASMValueType.nil) pushSafe(typeStack, args[0].u32);
+                    pushSafe(typeStack, args[0].u32);
                     block_types.pop();
                     break;
                 case WASMOPCode.op_unreachable:
@@ -281,8 +286,7 @@ export default class WASMRepr {
                     for (let i = instrDef.args.length; i > 0; --i)
                         __typeCheckArg(typeStack, instrDef.args[i - 1])
 
-                    if (instrDef.ret !== WASMValueType.nil)
-                        pushSafe(typeStack, instrDef.ret);
+                    pushSafe(typeStack, instrDef.ret);
                     break;
                 }
 
