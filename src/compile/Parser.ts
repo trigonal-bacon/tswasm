@@ -171,7 +171,7 @@ export default class WASMParser {
                     break;
                 }
                 default:
-                    throw new CompileError(`Invalid import type`);
+                    throw new CompileError(`Invalid import type ${kind}`);
             }
             repr.section2.content.push(content);
         }
