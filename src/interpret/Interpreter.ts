@@ -52,12 +52,29 @@ function makeExportFunction(prog : Program, index : number) : (...args: Array<an
 class StackFrame {
     locals : Array<WASMValue>;
     pc : number;
-    func : number
+    func : number;
     constructor(locals : Array<WASMValue>, pc : number, func : number) {
         this.locals = locals;
         this.pc = pc;
         this.func = func;
     }
+}
+
+function branchUp(blockFrames : Array<number>, valueStack : Array<WASMValue>, depth : number, toKeep : number) : void {
+    if (blockFrames.length - 1 < depth)
+        throw new RangeError(`Branch depth ${depth} exceeds max depth ${blockFrames.length - 1}`);
+    const anchor = blockFrames[blockFrames.length - 1 - depth];
+    //console.log(`Branch depth ${depth}`);
+    if (anchor + toKeep > valueStack.length) 
+        //console.log(blockFrames, typeArrayToString(valueStack.map(x => x.type)));
+        throw new RangeError(`Saved length ${anchor} and toKeep ${toKeep} >= real length ${valueStack.length}`);
+    const top = valueStack.length - toKeep;
+    if (toKeep > 0) {
+        for (let i = 0; i < toKeep; ++i)
+            valueStack[anchor + i] = valueStack[top + i];
+    }
+    blockFrames.length -= depth + 1;
+    valueStack.length = (anchor + toKeep);
 }
 
 function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
@@ -294,6 +311,7 @@ export class Program {
         let argC = reader.read_u32();
         let localC = reader.read_u32();
         let locals : Array<WASMValue> = new Array(argC + localC);
+        const blockFrames : Array<number> = [];
         if (argC !== args.length) 
             throw new RangeError(`Expected ${argC} arguments to function call, got ${args.length}`);
 
@@ -309,40 +327,62 @@ export class Program {
             switch (instr) {
                 case WASMOPCode.op_unreachable:
                     throw new RuntimeError("Unreachable");
-                case WASMOPCode.op_nop:
-                case WASMOPCode.op_block:
-                case WASMOPCode.op_loop:
-                    break;
                 case WASMOPCode.op_if: {
                     const idx = reader.read_u32();
                     const x = popSafe(valueStack).i32;
-                    if (x === 0)
+                    if (x === 0) {
                         reader.at = idx;
-                    break;
+                        break;
+                    }
                 }
+                case WASMOPCode.op_else:
+                case WASMOPCode.op_block:
+                case WASMOPCode.op_loop:
+                    //console.log(`Branch ${blockFrames.length} create [${valueStack.length}]`);
+                    blockFrames.push(valueStack.length);
+                case WASMOPCode.op_nop:
+                    break;
+                case WASMOPCode.op_end:
+                    blockFrames.pop();
+                    //console.log(`Branch ${blockFrames.length} destroy [${valueStack.length}]`);
+                    break;
                 case WASMOPCode.op_br: {
+                    const numKeep = reader.read_u32();
                     const idx = reader.read_u32();
+                    const branchDepth = reader.read_u32();
                     reader.at = idx;
+                    branchUp(blockFrames, valueStack, branchDepth, numKeep);
                     break;
                 }
                 case WASMOPCode.op_br_if: {
+                    const numKeep = reader.read_u32();
                     const idx = reader.read_u32();
+                    const branchDepth = reader.read_u32();
                     const x = popSafe(valueStack).i32;
-                    if (x !== 0) reader.at = idx;
+                    if (x !== 0) {
+                        reader.at = idx;
+                        branchUp(blockFrames, valueStack, branchDepth, numKeep);
+                    }
                     break;
                 }
                 case WASMOPCode.op_br_table: {
-                    const x = popSafe(valueStack).i32;
+                    const numKeep = reader.read_u32();
                     const size = reader.read_u32();
+                    const x = popSafe(valueStack).i32;
                     const anchor = reader.at;
                     if (x >= 0 && x < size)
-                        reader.at = anchor + x * 4;
+                        reader.at = anchor + x * 8;
                     else 
-                        reader.at = anchor + size * 4;
-                    reader.at = reader.read_u32();
+                        reader.at = anchor + size * 8;
+                    const jumpTo = reader.read_u32();
+                    const branchDepth = reader.read_u32();
+                    reader.at = jumpTo;
+                    branchUp(blockFrames, valueStack, branchDepth, numKeep);
                     break;
                 }
                 case WASMOPCode.op_return: {
+                    const branchDepth = reader.read_u32();
+                    const numKeep = reader.read_u32();
                     if (callStack.length === 0) {
                         if (this.funcTypes[entry].ret !== WASMValueType.nil) {
                             if (valueStack.length !== 1) 
@@ -359,6 +399,10 @@ export class Program {
                         (locals = frame.locals) &&
                         (reader.at = frame.pc) &&
                         (entry = frame.func);
+                        //branch x - 1 times;
+                        //console.log(`Destroying ${branchDepth} branches on return`);
+                        if (branchDepth > 0)
+                            branchUp(blockFrames, valueStack, branchDepth - 1, numKeep);
                     }
                     break;
                 }
@@ -1522,9 +1566,6 @@ export class Program {
                     pushSafe(valueStack, newI32(x >>> 0));
                     break;
                 }
-                case WASMOPCode.op_else:
-                case WASMOPCode.op_end:
-                    //these instructions are removed in the resulting code
                 default:
                     throw new RuntimeError(`Invalid opcode ${instr}`)
             }

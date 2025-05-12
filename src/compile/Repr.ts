@@ -221,6 +221,8 @@ export default class WASMRepr {
                         throw new RangeError(`Invalid block depth ${args[0].u32}`); 
                     const blockType = block_types[block_types.length - 1 - args[0].u32];
                     __typeCheckArg(typeStack, blockType);
+                    //how many values to keep when branching
+                    instr.numKeep = blockType === WASMValueType.nil ? 0 : 1;
                     if (instr.instr === WASMOPCode.op_br) return;
                     pushSafe(typeStack, blockType);
                     break;
@@ -232,7 +234,8 @@ export default class WASMRepr {
                     for (let i = 1; i < args.length; ++i) 
                         if (blockType !== block_types[block_types.length - 1 - args[i].u32])
                             throw new TypeError(`Block type mismatch`);
-
+                    //how many values to keep when branching
+                    instr.numKeep = blockType === WASMValueType.nil ? 0 : 1;
                     __typeCheckArg(typeStack, blockType);
                     return;
                 }
@@ -244,6 +247,7 @@ export default class WASMRepr {
                         this.__validateCodeBlockRecursive(instr.child2, locals, block_types, args[0].u32, func_return);
                     pushSafe(typeStack, args[0].u32);
                     block_types.pop();
+                    instr.numKeep = args[0].u32 === WASMValueType.nil ? 0 : 1;
                     break;
                 case WASMOPCode.op_drop:
                     if (typeStack.length === 0)
@@ -269,6 +273,9 @@ export default class WASMRepr {
                     return;
                 case WASMOPCode.op_return:
                     __typeCheckResult(typeStack, func_return);
+                    //used to store number of branch ups
+                    instr.immediates.push(WASMValue.createU32Literal(block_types.length));
+                    instr.numKeep = func_return === WASMValueType.nil ? 0 : 1;
                     return;
                 case WASMOPCode.op_select: {
                     __typeCheckArg(typeStack, WASMValueType.i32);
