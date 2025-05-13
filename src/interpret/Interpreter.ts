@@ -946,7 +946,7 @@ export class Program {
                 case WASMOPCode.op_i32_mul: {
                     const y = popSafe(valueStack).i32;
                     const x = popSafe(valueStack).i32;
-                    pushSafe(valueStack, newI32(x * y));
+                    pushSafe(valueStack, newI32(Math.imul(x, y)));
                     break;
                 }
                 case WASMOPCode.op_i32_div_s: {

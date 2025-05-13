@@ -22,13 +22,13 @@ export class WASMValue {
         this.__bigval = v.__bigval;
     }
     get u32() : number {
-        return this.__value >>> 0;
+        return this.__value;
     }
     get i32() : number {
-        return this.__value >> 0;
+        return this.__value;
     }
     get f32() : number {
-        return Math.fround(this.__value);
+        return this.__value;
     }
     get i64() : bigint {
         return this.__bigval;
