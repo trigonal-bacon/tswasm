@@ -114,10 +114,9 @@ export default class WASMParser {
             if (validate !== 0x60)
                 throw new CompileError(`Expected 0x60 for functype, got ${validate}`);
             const paramLen = lexer.read_uint32();
-            for (let j = 0; j < paramLen; ++j) {
-                const valtype = readValueType(lexer);
-                content.args.push(valtype);
-            }
+            for (let j = 0; j < paramLen; ++j) 
+                content.args.push(readValueType(lexer));
+
             const retLen = lexer.read_uint32();
             if (retLen === 0)
                 content.ret = WASMValueType.nil;

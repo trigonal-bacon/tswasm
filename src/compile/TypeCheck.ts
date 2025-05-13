@@ -18,8 +18,10 @@ export function typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType
     if (top === undefined)
         throw new CompileError(`Expected 1 value on stack, got 0`);
     //if polymorphic, whatever is ok.
-    if (top === WASMValueType.nil)
+    if (top === WASMValueType.nil) {
+        stack.push(WASMValueType.nil);
         return;
+    }
     if (top !== check)
         throw new TypeError(`Type mismatch: expected ${typeToString(check)} on stack, got ${typeToString(top)}`);
 }
@@ -32,16 +34,13 @@ export function typeCheckResult(stack : Array<WASMValueType>, check : WASMValueT
             return;
         throw new RangeError(`Expected empty stack on return, got ${stack.length}`);
     }
-    else if (stack.length !== 1)
-        throw new RangeError(`Error on return, expected 1 argument on stack, got ${stack.length}`);
-    const top = stack[0];
-    if (top === undefined)
-        throw new CompileError(`Impossible`);
-    //if polymorphic, whatever is ok.
-    if (top == WASMValueType.nil)
+    const top = stack.pop();
+    if (top === WASMValueType.nil)
         return;
-    if (top !== check)
-        throw new TypeError(`Type mismatch: expected ${typeToString(check)} values on stack, got ${typeToString(top)}`);
+    if (top === check)
+        return;
+    else
+        throw new TypeError(`Expected [], got ${typeArrayToString(stack)}`);
 }
 
 export function typeCheckDef(typeStack : Array<WASMValueType>, instrOp : WASMOPCode) {
