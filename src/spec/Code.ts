@@ -1,22 +1,15 @@
 import { WASMOPCode } from "./OpCode";
 import { typeToString, WASMValueType } from "./Types";
 
-import {
-    CONVERSION_UINT8, CONVERSION_INT8, 
-    CONVERSION_UINT16, CONVERSION_INT16,
-    CONVERSION_UINT32, CONVERSION_INT32, CONVERSION_FLOAT32,
-    CONVERSION_UINT64, CONVERSION_INT64, CONVERSION_FLOAT64
-} from "../helpers/Conversion";
-
 //nil represents an uninitialized wasmvalue
-//maybe implement typechecking under the hood just in case
+//implements typechecking under the hood just in case
 
 export class WASMValue {
     type : WASMValueType = WASMValueType.nil;
     __value : number = 0;
     __bigval : bigint = BigInt(0);
     set(v : WASMValue) {
-        if (this.type !== v.type)
+        if (this.type !== v.type && this.type !== WASMValueType.nil && v.type !== WASMValueType.nil)
             throw new TypeError(`Internal type mismatch: expected ${typeToString(this.type)}, got ${typeToString(v.type)}`);
         this.__value = v.__value;
         this.__bigval = v.__bigval;
@@ -79,9 +72,8 @@ export class WASMValue {
     }
     static createI64Literal(i64 : bigint) : WASMValue {
         const ret = new WASMValue();
-        CONVERSION_INT64[0] = i64;
         ret.type = WASMValueType.i64;
-        ret.__bigval = CONVERSION_INT64[0];
+        ret.__bigval = BigInt.asIntN(64, i64);
         return ret;
     }
     static createF64Literal(f64 : number) : WASMValue {

@@ -1,15 +1,15 @@
 export enum WASMValueType {
     nil = 0x40,
+    u32 = 0x41, //NOT IN SPEC
     f64 = 0x7C,
     f32 = 0x7D,
     i64 = 0x7E,
-    i32 = 0x7F,
-    u32 = 0x80 //NOT IN SPEC
+    i32 = 0x7F
 }
 
 export function typeToString(t : WASMValueType) : string {
     switch(t) {
-        case WASMValueType.nil: return "nil";
+        case WASMValueType.nil: return "any";
         case WASMValueType.i32: return "i32";
         case WASMValueType.f32: return "f32";
         case WASMValueType.i64: return "i64";

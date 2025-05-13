@@ -7,6 +7,8 @@ import {
 
 const TEXT_DECODER = new TextDecoder();
 
+//surprisingly, since all of the read/write operations are paired, all of this is endian-unspecific
+
 export class Reader {
     buf : Uint8Array;
     at : number;
@@ -37,34 +39,34 @@ export class Reader {
     }
 
     read_uint32() : number {
-        CONVERSION_UINT32[0] = 0;
+        let ret = 0;
         let shift = 0;
         let u8 = this.read_uint8();
         while (u8 & 0x80) {
-            CONVERSION_UINT32[0] |= (u8 & 0x7F) << shift;
+            ret |= (u8 & 0x7F) << shift;
             shift += 7;
             if (shift >= 32)
                 throw new RangeError(`Malformed leb128 u32`);
             u8 = this.read_uint8();
         }
-        CONVERSION_UINT32[0] |= (u8 << shift); //only get last 4 bits from 5th byte
-        return CONVERSION_UINT32[0];
+        ret |= (u8 << shift); //only get last 4 bits from 5th byte
+        return ret >>> 0;
     }
 
     read_int32() : number {
-        CONVERSION_INT32[0] = 0;
+        let ret = 0;
         let shift = 0;
         let u8 = this.read_uint8();
         while (u8 & 0x80) {
-            CONVERSION_INT32[0] |= (u8 & 0x7F) << shift;
+            ret |= (u8 & 0x7F) << shift;
             shift += 7;
             if (shift >= 32) 
                 throw new RangeError(`Malformed leb128 i32`);
             u8 = this.read_uint8();
         }
-        CONVERSION_INT32[0] |= (u8 << shift); //only get last 4 bits from 5th byte
-        if (u8 & 0x40 && shift <= 7 * 3) CONVERSION_INT32[0] |= (~0 << (shift + 7));
-        return CONVERSION_INT32[0];
+        ret |= (u8 << shift); //only get last 4 bits from 5th byte
+        if (u8 & 0x40 && shift <= 7 * 3) ret |= (~0 << (shift + 7));
+        return ret|0;
     }
 
     read_uint64() : bigint {
@@ -189,7 +191,6 @@ export class FixedLengthReader {
 
     read_u32() : number {
         for (let i = 0; i < 4; ++i) CONVERSION_UINT8[i] = this.read_u8();
-        //CONVERSION_UINT8.set(this.buf.subarray(this.at, this.at += 4), 0);
         return CONVERSION_UINT32[0];
     }
 
