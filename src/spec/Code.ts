@@ -96,6 +96,7 @@ export class InstrNode {
     instr : WASMOPCode = WASMOPCode.op_nop;
     hasElse : boolean = false;
     numKeep : number = 0;
+    numDrop : number = 0;
     returnType : WASMValueType = WASMValueType.nil;
     immediates : Array<WASMValue> = [];
     child : Array<InstrNode> = [];

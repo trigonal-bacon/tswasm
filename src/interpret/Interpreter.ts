@@ -25,7 +25,7 @@ import { LinkError, RuntimeError } from "../spec/Error";
 const CALL_STACK_LIMIT = 300;
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
-function makeExportFunction(prog : Program, index : number) : (...args: Array<any>) => number | bigint | undefined {
+function makeExportFunction(prog : Program, index : number) : (...args: Array<any>) => number | bigint | Array<number | bigint> | undefined {
     const funcType = prog.funcTypes[index];
     const numIters = funcType.args.length;
     const exportFuncWrapper = (...args : Array<any>) => {
@@ -297,7 +297,7 @@ export class Program {
 
     }
 
-    run(entry : number, args : Array<WASMValue>) : bigint | number | undefined {
+    run(entry : number, args : Array<WASMValue>) : bigint | number | Array<bigint | number> | undefined {
         if (entry < 0 || entry >= this.funcCount + this.importFuncCount)
             throw new RangeError("Function index out of range");
         if (entry < this.importFuncCount) {
@@ -341,8 +341,10 @@ export class Program {
                 }
                 case WASMOPCode.op_else:
                 case WASMOPCode.op_block:
-                case WASMOPCode.op_loop:
-                    blockFrames.push(valueStack.length);
+                case WASMOPCode.op_loop: {
+                    const numDrop = reader.read_u32();
+                    blockFrames.push(valueStack.length - numDrop);
+                }
                 case WASMOPCode.op_nop:
                     break;
                 case WASMOPCode.op_end:
@@ -386,14 +388,11 @@ export class Program {
                     const branchDepth = reader.read_u32();
                     const numKeep = reader.read_u32();
                     if (callStack.length === 0) {
-                        if (this.funcTypes[entry].ret !== WASMValueType.nil) {
-                            if (valueStack.length !== 1) 
-                                throw new RuntimeError(`Stack size ${valueStack.length} not exactly 1`);
+                        if (this.funcTypes[entry].rets.length !== valueStack.length) 
+                            throw new RuntimeError(`Expected ${this.funcTypes[entry].rets.length} on return, got ${valueStack.length}`);
+                        if (valueStack.length === 1)
                             return popSafe(valueStack).numeric;
-                        }
-                        if (valueStack.length !== 0)
-                            throw new RuntimeError("Stack expected to be empty");
-                        return;
+                        return valueStack.map(x => x.numeric);//popSafe(valueStack).numeric;
                     }
                     else {
                         const frame = callStack.pop();
@@ -425,23 +424,29 @@ export class Program {
                         const argArr : Array<any> = new Array(this.funcTypes[funcIdx].args.length);
                         for (let i = argArr.length; i > 0; --i) 
                             argArr[i - 1] = popSafe(valueStack).numeric;
-                        const ret = this.importedFuncs[funcIdx](...argArr);
-                        switch(this.funcTypes[funcIdx].ret) {
-                            case WASMValueType.i32:
-                                pushSafe(valueStack, newI32(ret));
-                                break;
-                            case WASMValueType.f32:
-                                pushSafe(valueStack, newF32(ret));
-                                break;
-                            case WASMValueType.i64:
-                                pushSafe(valueStack, newI64(BigInt(ret)));
-                                break;
-                            case WASMValueType.f64:
-                                pushSafe(valueStack, newF64(ret));
-                                break;
-                            case WASMValueType.nil:
-                            default:
-                                break;
+                        let retVal = this.importedFuncs[funcIdx](...argArr);
+                        const retLen = this.funcTypes[funcIdx].rets.length;
+                        retVal = retLen === 1 ? [retVal] : retVal;
+                        for (let i = 0; i < retLen; ++i) {
+                            const retType = this.funcTypes[funcIdx].rets[i];
+                            const ret = retVal[i];
+                            switch(retType) {
+                                case WASMValueType.i32:
+                                    pushSafe(valueStack, newI32(ret));
+                                    break;
+                                case WASMValueType.f32:
+                                    pushSafe(valueStack, newF32(ret));
+                                    break;
+                                case WASMValueType.i64:
+                                    pushSafe(valueStack, newI64(BigInt(ret)));
+                                    break;
+                                case WASMValueType.f64:
+                                    pushSafe(valueStack, newF64(ret));
+                                    break;
+                                case WASMValueType.nil:
+                                default:
+                                    break;
+                            }
                         }
                         break;
                     }

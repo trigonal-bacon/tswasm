@@ -35,6 +35,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
         switch (instr.instr) {
             case WASMOPCode.op_block: {
                 blockPtrStack.push([]);
+                writer.write_u32(instr.numDrop);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();
                 if (toWrite == undefined)
@@ -47,6 +48,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_if: {
                 const anchor = writer.at;
                 writer.write_u32(0);
+                writer.write_u32(instr.numDrop);
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 if (instr.hasElse) {
@@ -61,6 +63,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                     writer.write_u32(0);
                     writer.retroactive_write_u32(writer.at, anchor); //skip on fail
                     writer.write_u8(WASMOPCode.op_else);
+                    writer.write_u32(instr.numDrop);
                     writeInstrNodes(writer, instr.child2, blockPtrStack, funcPtrArr);
                     writer.write_u8(WASMOPCode.op_end);
                     writer.retroactive_write_u32(writer.at, anchor2); //skip fail clause on success
@@ -78,6 +81,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_loop: {
                 //go back to before the loop instruction, to refresh the block
                 const anchor = writer.at - 1;
+                writer.write_u32(instr.numDrop);
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();

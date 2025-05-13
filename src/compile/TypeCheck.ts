@@ -1,5 +1,4 @@
 import { WASMValueType, typeToString, typeArrayToString } from "../spec/Types";
-import { CompileError } from "../spec/Error";
 import { WASMOPCode, WASMOPDefs } from "../spec/OpCode";
 
 export function typeStackPush(stack : Array<WASMValueType>, t : WASMValueType) : void {
@@ -10,45 +9,45 @@ export function typeStackPush(stack : Array<WASMValueType>, t : WASMValueType) :
     stack.push(t);
 }
 
-export function typeCheckArg(stack : Array<WASMValueType>, check : WASMValueType) : void {
-    if (check === WASMValueType.nil)
-        //do nothing
-        return;
-    const top = stack.pop();
-    if (top === undefined)
-        throw new CompileError(`Expected 1 value on stack, got 0`);
-    //if polymorphic, whatever is ok.
-    if (top === WASMValueType.nil) {
-        stack.push(WASMValueType.nil);
-        return;
+export function typeCheckArgs(stack : Array<WASMValueType>, check : Array<WASMValueType>) : void {
+    const save = stack.slice(0);
+    for (let i = check.length - 1; i >= 0; --i) {
+        if (stack.length === 0)
+            throw new TypeError(`Expected args ${typeArrayToString(check)}, got ${typeArrayToString(save)}`);
+        let curr = stack[stack.length - 1];
+        if (curr === WASMValueType.nil)
+            return;
+        stack.pop();
+        if (curr !== check[i])
+            throw new TypeError(`Expected args ${typeArrayToString(check)}, got ${typeArrayToString(save)}`);
     }
-    if (top !== check)
-        throw new TypeError(`Type mismatch: expected ${typeToString(check)} on stack, got ${typeToString(top)}`);
+    //success
+    return;
 }
 
-export function typeCheckResult(stack : Array<WASMValueType>, check : WASMValueType) : void {
-    if (check === WASMValueType.nil) {
-        if (stack.length === 0) 
-            return;
-        if (stack.pop() === WASMValueType.nil)
-            return;
-        throw new RangeError(`Expected empty stack on return, got ${stack.length}`);
-    }
-    const top = stack.pop();
-    if (top === WASMValueType.nil)
+export function typeCheckResults(stack : Array<WASMValueType>, check : Array<WASMValueType>) : void {
+    const save = stack.slice(0);
+    typeCheckArgs(stack, check);
+    if (stack.length === 0 || stack.pop() === WASMValueType.nil)
         return;
-    if (top === check)
-        return;
-    else
-        throw new TypeError(`Expected [], got ${typeArrayToString(stack)}`);
+    throw new TypeError(`Expected ${typeArrayToString(check)}, got ${typeArrayToString(save)}`);
+}
+
+export function typeArrayEq(t1 : Array<WASMValueType>, t2 : Array<WASMValueType>) : boolean {
+    if (t1.length !== t2.length)
+        return false;
+    for (let i = 0; i < t1.length; ++i)
+        if (t1[i] !== t2[i])
+            return false;
+    return true;
 }
 
 export function typeCheckDef(typeStack : Array<WASMValueType>, instrOp : WASMOPCode) {
     const instrDef = WASMOPDefs[instrOp];
     if (typeStack.length < instrDef.args.length)
         throw new RangeError(`Expected at least ${instrDef.args.length} values on stack for ${instrOp}, got ${typeStack.length}`);
-    for (let i = instrDef.args.length; i > 0; --i)
-        typeCheckArg(typeStack, instrDef.args[i - 1])
+    typeCheckArgs(typeStack, instrDef.args);
 
-    typeStackPush(typeStack, instrDef.ret);
+    for (const ret of instrDef.rets)
+        typeStackPush(typeStack, ret);
 }

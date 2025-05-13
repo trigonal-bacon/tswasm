@@ -15,7 +15,7 @@ const WebAssembly = {
         return new Promise((res, rej) : void => {
             if (!(buf instanceof ArrayBuffer) && !(buf instanceof Uint8Array))
                 return rej(new Error(`Cannot instantiate a non-buffer object`));
-            const module = new WASMModule(new Uint8Array(buf).buffer);
+            const module = new WASMModule(new Uint8Array(buf));
             res(module);
         });
     },
@@ -23,7 +23,7 @@ const WebAssembly = {
         return new Promise((res : (x : InstantiateResult) => any, rej) => {
             if (!(buf instanceof ArrayBuffer) && !(buf instanceof Uint8Array))
                 return rej(new Error(`Cannot instantiate a non-buffer object`));
-            const module = new WASMModule(new Uint8Array(buf).buffer);
+            const module = new WASMModule(new Uint8Array(buf));
             const instance = new Program(module, imports);
             res({ module, instance });
         });

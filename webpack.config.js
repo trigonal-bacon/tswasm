@@ -21,6 +21,7 @@ module.exports = {
     library: {
       name: 'WebAssembly',
       type: 'umd',
+      //type: 'commonjs-module',
       export: "default"
     },
   },

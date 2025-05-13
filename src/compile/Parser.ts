@@ -1,7 +1,7 @@
 import { Reader } from "../helpers/Lexer";
 import { InstrNode, WASMValue } from "../spec/Code";
 import { CompileError } from "../spec/Error";
-import { WASMOPCode, WASMOPDefs } from "../spec/OpCode";
+import { WASMOPCode, WASMOPDef, WASMOPDefs } from "../spec/OpCode";
 import { 
     WASMFuncType,
     WASMLimit,
@@ -17,7 +17,7 @@ import {
 } from "../spec/Sections";
 import { WASMValueType, WASMDeclType, WASMGlobalType, WASMRefType, typeArrayToString, typeToString } from "../spec/Types";
 import WASMRepr from "./Repr";
-import { typeCheckArg, typeCheckDef, typeCheckResult, typeStackPush } from "./TypeCheck";
+import { typeArrayEq, typeCheckArgs, typeCheckDef, typeCheckResults, typeStackPush } from "./TypeCheck";
 
 export default class WASMParser {
     bin : Uint8Array;
@@ -125,12 +125,8 @@ export default class WASMParser {
                 content.args.push(this.readValueType());
 
             const retLen = lexer.read_uint32();
-            if (retLen === 0)
-                content.ret = WASMValueType.nil;
-            else if (retLen === 1) 
-                content.ret = this.readValueType();
-            else 
-                throw new CompileError(this.dumpErr(`Multireturn currently not supported`));
+            for (let j = 0; j < retLen; ++j) 
+                content.rets.push(this.readValueType());
             repr.section1.content.push(content);
         }
     }
@@ -246,14 +242,6 @@ export default class WASMParser {
     }
 
     parseSection7(repr : WASMRepr) : void {
-        if (!repr.has_section(3))
-            throw new CompileError(this.dumpErr(`Function section missing for exports`));
-        if (!repr.has_section(4))
-            throw new CompileError(this.dumpErr(`Table section missing for exports`));
-        if (!repr.has_section(5))
-            throw new CompileError(this.dumpErr(`Memory section missing for exportsn`));
-        if (!repr.has_section(6))
-            throw new CompileError(this.dumpErr(`Global section missing for exports`));
         const lexer = this.lexer;
         const sectionLen = lexer.read_uint32();
         for (let i = 0; i < sectionLen; ++i) {
@@ -264,18 +252,26 @@ export default class WASMParser {
             const index = content.index = lexer.read_uint32();
             switch (kind) {
                 case 0:
+                    if (!repr.has_section(3))
+                        throw new CompileError(this.dumpErr(`Function section missing for exports`));
                     if (index >= repr.funcTypes.length)
                         throw new RangeError(this.dumpErr(`Exported function ${index} out of range`));
                     break;
                 case 1:
+                    if (!repr.has_section(4))
+                        throw new CompileError(this.dumpErr(`Table section missing for exports`));
                     if (index >= repr.tableCount)
                         throw new RangeError(this.dumpErr(`Exported table ${index} out of range`));
                     break;
                 case 2:
+                    if (!repr.has_section(5))
+                        throw new CompileError(this.dumpErr(`Memory section missing for exports`));
                     if (index >= repr.memoryCount)
                         throw new RangeError(this.dumpErr(`Exported memory ${index} out of range`));
                     break;
                 case 3:
+                    if (!repr.has_section(6))
+                        throw new CompileError(this.dumpErr(`Global section missing for exports`));
                     if (index >= repr.globalTypes.length)
                         throw new RangeError(this.dumpErr(`Exported global ${index} out of range`));
                     //if (this.globalTypes[exp.index].mutable === false)
@@ -298,8 +294,8 @@ export default class WASMParser {
         if (repr.section8.index - repr.importFunc >= repr.section3.content.length)
             throw new RangeError(this.dumpErr(`Start index $func${repr.section8.index} out of range`));
         const funcType = repr.section1.content[repr.funcTypes[repr.section8.index]];
-        if (funcType.args.length !== 0 || funcType.ret !== WASMValueType.nil)
-            throw new TypeError(this.dumpErr(`Expected start function type to be [] -> [], got [${typeArrayToString(funcType.args)}] -> [${typeToString(funcType.ret)}]`));
+        if (funcType.args.length !== 0 || funcType.rets.length !== 0)
+            throw new TypeError(this.dumpErr(`Expected start function type to be [] -> [], got [${typeArrayToString(funcType.args)}] -> [${typeArrayToString(funcType.rets)}]`));
     }
 
     parseSection9(repr : WASMRepr) : void {
@@ -344,7 +340,14 @@ export default class WASMParser {
                 for (let j = 0; j < count; ++j)
                     locals.push(type);
             }
-            section.code = this.parseCodeBlock(locals, [], typeDef.ret, typeDef.ret, repr);
+            section.code = this.parseCodeBlock(
+                locals,
+                [],
+                [],
+                typeDef.rets,
+                typeDef.rets,
+                repr
+            );
             repr.section10.content.push(section);
         } 
     }
@@ -380,14 +383,34 @@ export default class WASMParser {
         repr.section12.dataCount = lexer.read_uint32();
     }
 
+    createResultType(t : number, repr : WASMRepr) : WASMOPDef {
+        if (t < 0) {
+            switch (t + 0x80) {
+                case WASMValueType.i32:
+                case WASMValueType.i64:
+                case WASMValueType.f32:
+                case WASMValueType.f64:
+                    return new WASMOPDef([], [t + 0x80]);
+                case WASMValueType.nil:
+                    return new WASMOPDef([], []);
+                default:
+                    throw new TypeError(`Invalid type ${t}`);
+            }
+        }
+        else {
+            if (t >= repr.section1.content.length)
+                throw new RangeError(`Functype ${t} out of range`)
+            return repr.section1.content[t];
+        }
+    }
     parseCodeBlock(
-        locals : Array<WASMValueType>, 
-        blockTypes : Array<WASMValueType>,
-        blockReturnType : WASMValueType,
-        funcReturn : WASMValueType,
+        locals : Array<WASMValueType>,
+        typeStack : Array<WASMValueType>,
+        blockTypes : Array<Array<WASMValueType>>,
+        blockReturnType : Array<WASMValueType>,
+        funcReturn : Array<WASMValueType>,
         repr : WASMRepr
     ) : Array<InstrNode> {
-        const typeStack : Array<WASMValueType> = [];
         const numLocals = locals.length;
         const numGlobals = repr.globalTypes.length;
         const numFuncs = repr.funcTypes.length;
@@ -401,24 +424,31 @@ export default class WASMParser {
             currInstr.instr = instrOp;
             switch (instrOp) {
                 case WASMOPCode.op_if:
-                    typeCheckArg(typeStack, WASMValueType.i32);
+                    typeCheckArgs(typeStack, [WASMValueType.i32]);
                 case WASMOPCode.op_loop:
                 case WASMOPCode.op_block: {
-                    const result = this.readValueType();
+                    //error 33bit signed
+                    const result = lexer.read_int32();
+                    const retType = this.createResultType(result, repr);
+                    typeCheckArgs(typeStack, retType.args);
                     if (instrOp === WASMOPCode.op_loop)
-                        blockTypes.push(WASMValueType.nil);
+                        blockTypes.push(retType.args);
                     else
-                        blockTypes.push(result);
+                        blockTypes.push(retType.rets);
                     currInstr.immediates.push(WASMValue.createU32Literal(result));
-                    currInstr.child = this.parseCodeBlock(locals, blockTypes, result, funcReturn, repr);
+                    currInstr.child = this.parseCodeBlock(locals, retType.args.slice(0), blockTypes, retType.rets, funcReturn, repr);
                     lexer.back();
                     if (lexer.read_uint8() === WASMOPCode.op_else) {
                         currInstr.hasElse = true;
-                        currInstr.child2 = this.parseCodeBlock(locals, blockTypes, result, funcReturn, repr);
+                        currInstr.child2 = this.parseCodeBlock(locals, retType.args.slice(0), blockTypes, retType.rets, funcReturn, repr);
                     }
-                    typeStackPush(typeStack, result);
+                    else if (instrOp === WASMOPCode.op_if && !typeArrayEq(retType.args, retType.rets))
+                        throw new TypeError(this.dumpErr(`if true clause returns [${typeArrayToString(retType.rets)}], if false returns [${typeArrayToString(retType.args)}]`))
+                    for (const ret of retType.rets)
+                        typeStackPush(typeStack, ret);
                     //fix for multireturn
-                    currInstr.numKeep = result === WASMValueType.nil ? 0 : 1;
+                    currInstr.numKeep = retType.rets.length;
+                    currInstr.numDrop = retType.args.length;
                     blockTypes.pop();
                     break;
                 }
@@ -428,9 +458,11 @@ export default class WASMParser {
                     if (index >= numFuncs)
                         throw new RangeError(this.dumpErr(`Function index ${index} out of range`));
                     const funcType = repr.section1.content[repr.funcTypes[index]];
-                    for (let i = funcType.args.length; i > 0; --i)
-                        typeCheckArg(typeStack, funcType.args[i - 1]);
-                    typeStackPush(typeStack, funcType.ret);
+                    typeCheckArgs(typeStack, funcType.args);
+                    //for (let i = funcType.args.length; i > 0; --i)
+                        //typeCheckArg(typeStack, funcType.args[i - 1]);
+                    for (const ret of funcType.rets)
+                        typeStackPush(typeStack, ret);
                     break;
                 }
                 case WASMOPCode.op_call_indirect: {
@@ -438,15 +470,15 @@ export default class WASMParser {
                     currInstr.immediates.push(WASMValue.createU32Literal(index));
                     if (lexer.read_uint32() !== 0x00) 
                         console.error(`Warning: call_indirect typeuse not supported and is ignored`);
-                    typeCheckArg(typeStack, WASMValueType.i32);
+                    typeCheckArgs(typeStack, [WASMValueType.i32]);
                     const funcType = repr.section1.content[index];
-                    for (let i = funcType.args.length; i > 0; --i)
-                        typeCheckArg(typeStack, funcType.args[i - 1]);
-                    typeStackPush(typeStack, funcType.ret);
+                    typeCheckArgs(typeStack, funcType.args);
+                    for (const ret of funcType.rets)
+                        typeStackPush(typeStack, ret);
                     break;
                 }
                 case WASMOPCode.op_br_table: {
-                    typeCheckArg(typeStack, WASMValueType.i32);
+                    typeCheckArgs(typeStack, [WASMValueType.i32]);
                     const indCount = lexer.read_uint32();
                     currInstr.immediates.push(WASMValue.createU32Literal(indCount));
                     const depth = lexer.read_uint32();
@@ -459,11 +491,12 @@ export default class WASMParser {
                         currInstr.immediates.push(WASMValue.createU32Literal(depth));
                         if (depth >= blockTypes.length)
                             throw new RangeError(this.dumpErr(`Branch depth ${depth} invalid`));
-                        if (retType !== blockTypes[blockTypes.length - 1 - depth])
+                        if (!typeArrayEq(retType, blockTypes[blockTypes.length - 1 - depth]))
                             throw new TypeError(this.dumpErr(`br_table block type mismatch`));
                     }
-                    currInstr.numKeep = retType === WASMValueType.nil ? 0 : 1;
-                    typeCheckArg(typeStack, retType);
+                    //fix
+                    currInstr.numKeep = retType.length;
+                    typeCheckArgs(typeStack, retType);
                     typeStack.push(WASMValueType.nil);
                     break
                 }
@@ -516,17 +549,19 @@ export default class WASMParser {
                     currInstr.immediates.push(WASMValue.createF64Literal(lexer.read_float64()));
                     break;
                 case WASMOPCode.op_br_if:
-                    typeCheckArg(typeStack, WASMValueType.i32);
+                    typeCheckArgs(typeStack, [WASMValueType.i32]);
                 case WASMOPCode.op_br: {
                     const depth = lexer.read_uint32();
                     if (depth >= blockTypes.length)
                         throw new RangeError(this.dumpErr(`Invalid branch depth ${depth}`));
                     const blockType = blockTypes[blockTypes.length - 1 - depth];
-                    typeCheckArg(typeStack, blockType);
+                    //fix
+                    typeCheckArgs(typeStack, blockType);
                     currInstr.immediates.push(WASMValue.createU32Literal(depth));
-                    currInstr.numKeep = blockType === WASMValueType.nil ? 0 : 1;
+                    currInstr.numKeep = blockType.length;
                     //uhhhh lmao this may not work
-                    typeStackPush(typeStack, blockType);
+                    for (const ret of blockType)
+                        typeStackPush(typeStack, ret);
                     if (currInstr.instr === WASMOPCode.op_br) 
                         typeStack.push(WASMValueType.nil);
                     break;
@@ -543,7 +578,7 @@ export default class WASMParser {
                     const index = lexer.read_uint32();
                     if (index >= numLocals)
                         throw new RangeError(this.dumpErr(`Local index ${index} out of range`));
-                    typeCheckArg(typeStack, locals[index]);
+                    typeCheckArgs(typeStack, [locals[index]]);
                     currInstr.immediates.push(WASMValue.createU32Literal(index));
                     break;
                 }
@@ -551,7 +586,7 @@ export default class WASMParser {
                     const index = lexer.read_uint32();
                     if (index >= numLocals)
                         throw new RangeError(this.dumpErr(`Local index ${index} out of range`));
-                    typeCheckArg(typeStack, locals[index]);
+                    typeCheckArgs(typeStack, [locals[index]]);
                     typeStackPush(typeStack, locals[index]);
                     currInstr.immediates.push(WASMValue.createU32Literal(index));
                     break;
@@ -568,7 +603,7 @@ export default class WASMParser {
                     const index = lexer.read_uint32();
                     if (index >= numGlobals)
                         throw new RangeError(this.dumpErr(`Global index ${index} out of range`));
-                    typeCheckArg(typeStack, repr.globalTypes[index].type);
+                    typeCheckArgs(typeStack, [repr.globalTypes[index].type]);
                     currInstr.immediates.push(WASMValue.createU32Literal(index));
                     break;
                 }
@@ -583,16 +618,16 @@ export default class WASMParser {
                     break;
                 }
                 case WASMOPCode.op_return: {
-                    typeCheckResult(typeStack, funcReturn);
+                    typeCheckResults(typeStack, funcReturn);
                     //used to store number of branch ups
                     currInstr.immediates.push(WASMValue.createU32Literal(blockTypes.length));
-                    currInstr.numKeep = funcReturn === WASMValueType.nil ? 0 : 1;
+                    currInstr.numKeep = funcReturn.length;
                     //polymorphic
                     typeStack.push(WASMValueType.nil);
                     break;
                 }
                 case WASMOPCode.op_select: {
-                    typeCheckArg(typeStack, WASMValueType.i32);
+                    typeCheckArgs(typeStack, [WASMValueType.i32]);
                     if (typeStack.length < 2)
                         throw new RangeError(this.dumpErr(`Expected at least 2 values on stack for select, got ${typeStack.length}`));
                     const t1 = typeStack.pop();
@@ -611,7 +646,7 @@ export default class WASMParser {
                     break;
             }
         }
-        typeCheckResult(typeStack, blockReturnType);
+        typeCheckResults(typeStack, blockReturnType);
         return instrArray;
     }
 

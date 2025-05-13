@@ -1,3 +1,4 @@
+import { WASMOPDef } from "../spec/OpCode";
 import { 
     WASMSection, WASMFuncType,
     WASMLimit,
@@ -12,7 +13,7 @@ import {
     WASMSection9Content,
     WASMSection6Content, 
 } from "../spec/Sections";
-import { WASMGlobalType } from "../spec/Types";
+import { WASMGlobalType, WASMValueType } from "../spec/Types";
 
 
 export default class WASMRepr {
