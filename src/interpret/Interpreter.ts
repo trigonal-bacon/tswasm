@@ -1,4 +1,4 @@
-import { FixedLengthReader } from "../helpers/Lexer";
+import { CTRL_ARG_BYTELEN, FixedLengthReader } from "../helpers/Lexer";
 import { WASMValue } from "../spec/Code";
 import { WASMOPCode } from "../spec/OpCode";
 import { WASMFuncType, WASMSection2Content, WASMSection4Content } from "../spec/Sections";
@@ -18,7 +18,7 @@ import {
     toConvert, fromConvert
 } from "../helpers/Conversion";
 
-import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length, newValue } from "./Alloc";
+import { newI32, newF32, newI64, newF64, freeVal, cloneValue, newValue } from "./Alloc";
 import { LinkError, RuntimeError } from "../spec/Error";
 
 
@@ -100,7 +100,7 @@ function readFuncPtr(reader : FixedLengthReader, idx : number) : void {
 }
 
 export class Program {
-    code : Uint8Array = new Uint8Array(0);
+    code : Uint8Array;
     memory : WASMMemory = new WASMMemory({});
     funcTypes : Array<WASMFuncType> = [];
     globals : Array<WASMValue> = [];
@@ -312,8 +312,8 @@ export class Program {
         const valueStack : Array<WASMValue> = [];
         const callStack : Array<StackFrame> = [];
         let memBuf = this.memory._buffer;
-        let argC = reader.read_u32();
-        let localC = reader.read_u32();
+        let argC = reader.read_ctrl_arg();
+        let localC = reader.read_ctrl_arg();
         let locals : Array<WASMValue> = new Array(argC + localC);
         const blockFrames : Array<number> = [];
         if (argC !== args.length) 
@@ -342,7 +342,7 @@ export class Program {
                 case WASMOPCode.op_else:
                 case WASMOPCode.op_block:
                 case WASMOPCode.op_loop: {
-                    const numDrop = reader.read_u32();
+                    const numDrop = reader.read_ctrl_arg();
                     blockFrames.push(valueStack.length - numDrop);
                 }
                 case WASMOPCode.op_nop:
@@ -351,17 +351,17 @@ export class Program {
                     blockFrames.pop();
                     break;
                 case WASMOPCode.op_br: {
-                    const numKeep = reader.read_u32();
+                    const numKeep = reader.read_ctrl_arg();
                     const idx = reader.read_u32();
-                    const branchDepth = reader.read_u32();
+                    const branchDepth = reader.read_ctrl_arg();
                     reader.at = idx;
                     branchUp(blockFrames, valueStack, branchDepth, numKeep);
                     break;
                 }
                 case WASMOPCode.op_br_if: {
-                    const numKeep = reader.read_u32();
+                    const numKeep = reader.read_ctrl_arg();
                     const idx = reader.read_u32();
-                    const branchDepth = reader.read_u32();
+                    const branchDepth = reader.read_ctrl_arg();
                     const x = popSafe(valueStack).i32;
                     if (x !== 0) {
                         reader.at = idx;
@@ -370,29 +370,29 @@ export class Program {
                     break;
                 }
                 case WASMOPCode.op_br_table: {
-                    const numKeep = reader.read_u32();
-                    const size = reader.read_u32();
+                    const numKeep = reader.read_ctrl_arg();
+                    const size = reader.read_ctrl_arg();
                     const x = popSafe(valueStack).i32;
                     const anchor = reader.at;
                     if (x >= 0 && x < size)
-                        reader.at = anchor + x * 8;
+                        reader.at = anchor + x * (4 + CTRL_ARG_BYTELEN);
                     else 
-                        reader.at = anchor + size * 8;
+                        reader.at = anchor + size * (4 + CTRL_ARG_BYTELEN);
                     const jumpTo = reader.read_u32();
-                    const branchDepth = reader.read_u32();
+                    const branchDepth = reader.read_ctrl_arg();
                     reader.at = jumpTo;
                     branchUp(blockFrames, valueStack, branchDepth, numKeep);
                     break;
                 }
                 case WASMOPCode.op_return: {
-                    const branchDepth = reader.read_u32();
-                    const numKeep = reader.read_u32();
+                    const branchDepth = reader.read_ctrl_arg();
+                    const numKeep = reader.read_ctrl_arg();
                     if (callStack.length === 0) {
                         if (this.funcTypes[entry].rets.length !== valueStack.length) 
                             throw new RuntimeError(`Expected ${this.funcTypes[entry].rets.length} on return, got ${valueStack.length}`);
                         if (valueStack.length === 1)
                             return popSafe(valueStack).numeric;
-                        return valueStack.map(x => x.numeric);//popSafe(valueStack).numeric;
+                        return valueStack.map(x => x.numeric);
                     }
                     else {
                         const frame = callStack.pop();
@@ -410,7 +410,7 @@ export class Program {
                 case WASMOPCode.op_call: {
                     let funcIdx : number = 0;
                     if (instr === WASMOPCode.op_call) 
-                        funcIdx = reader.read_u32();
+                        funcIdx = reader.read_ctrl_arg();
                     else {
                         const tableIdx = popSafe(valueStack).i32;
                         if (this.tables.length === 0)
@@ -456,8 +456,8 @@ export class Program {
                     callStack.push(frame);
                     entry = funcIdx;
                     readFuncPtr(reader, funcIdx - this.importFuncCount);
-                    const argC = reader.read_u32();
-                    const localC = reader.read_u32();
+                    const argC = reader.read_ctrl_arg();
+                    const localC = reader.read_ctrl_arg();
                     locals = new Array(argC + localC);
                     for (let i = argC; i > 0; --i)
                         locals[i - 1] = cloneValue(popSafe(valueStack));
@@ -477,21 +477,21 @@ export class Program {
                     break;
                 }
                 case WASMOPCode.op_local_get: {
-                    const idx = reader.read_u32();
+                    const idx = reader.read_ctrl_arg();
                     if (idx >= locals.length) 
                         throw new RuntimeError(`Local index ${idx} OOB`);
                     pushSafe(valueStack, cloneValue(locals[idx]));
                     break;
                 }
                 case WASMOPCode.op_local_set: {
-                    const idx = reader.read_u32();
+                    const idx = reader.read_ctrl_arg();
                     if (idx >= locals.length) 
                         throw new RuntimeError(`Local index ${idx} OOB`);
                     locals[idx] = popSafe(valueStack);
                     break;
                 }
                 case WASMOPCode.op_local_tee: {
-                    const idx = reader.read_u32();
+                    const idx = reader.read_ctrl_arg();
                     if (idx >= locals.length) 
                         throw new RuntimeError(`Local index ${idx} OOB`);
                     const x = popSafe(valueStack);
@@ -500,14 +500,14 @@ export class Program {
                     break;
                 }
                 case WASMOPCode.op_global_get: {
-                    const idx = reader.read_u32();
+                    const idx = reader.read_ctrl_arg();
                     if (idx >= this.globals.length) 
                         throw new RuntimeError(`Global index ${idx} OOB`);
                     pushSafe(valueStack, cloneValue(this.globals[idx]));
                     break;
                 }
                 case WASMOPCode.op_global_set: {
-                    const idx = reader.read_u32();
+                    const idx = reader.read_ctrl_arg();
                     if (idx >= this.globals.length)
                         throw new RuntimeError(`Global index ${idx} OOB`);
                     const x = popSafe(valueStack);

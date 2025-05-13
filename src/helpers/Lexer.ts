@@ -123,6 +123,8 @@ export class Reader {
     }
 }
 
+export const CTRL_ARG_BYTELEN = 1;
+
 export class FixedLengthWriter {
     buf : Array<number> = [];
     at : number = 0;
@@ -142,10 +144,18 @@ export class FixedLengthWriter {
             this.write_u8(instr >> 8);
     }
 
+    //used for synthetic control immediates
+    write_ctrl_arg(arg : number) : void {
+        CONVERSION_UINT32[0] = arg;
+        for (let i = 0; i < CTRL_ARG_BYTELEN; ++i)
+            this.buf[this.at++] = CONVERSION_UINT8[i];
+    }
+
     retroactive_write_u32(u32 : number, ptr : number) {
         CONVERSION_UINT32[0] = u32;
         for (let i = 0; i < 4; ++i) this.buf[ptr + i] = CONVERSION_UINT8[i];
     }
+
     write_u32(u32 : number) : void {
         CONVERSION_UINT32[0] = u32;
         for (let i = 0; i < 4; ++i) this.buf[this.at++] = CONVERSION_UINT8[i];
@@ -183,10 +193,16 @@ export class FixedLengthReader {
         return this.buf[this.at++];
     }
 
-    read_instr() {
+    read_instr() : number {
         const code = this.read_u8();
         if (code === 0xfc) return (this.read_u8() << 8) | code;
         return code;
+    }
+
+    read_ctrl_arg() : number {
+        CONVERSION_UINT32[0] = 0;
+        for (let i = 0; i < CTRL_ARG_BYTELEN; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        return CONVERSION_UINT32[0];
     }
 
     read_u32() : number {

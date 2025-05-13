@@ -35,7 +35,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
         switch (instr.instr) {
             case WASMOPCode.op_block: {
                 blockPtrStack.push([]);
-                writer.write_u32(instr.numDrop);
+                writer.write_ctrl_arg(instr.numDrop);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();
                 if (toWrite == undefined)
@@ -48,7 +48,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_if: {
                 const anchor = writer.at;
                 writer.write_u32(0);
-                writer.write_u32(instr.numDrop);
+                writer.write_ctrl_arg(instr.numDrop);
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 if (instr.hasElse) {
@@ -56,14 +56,14 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                     //synthetic br opcode, used for success to jump out
                     writer.write_u8(WASMOPCode.op_br);
                     //numkeep
-                    writer.write_u32(instr.numKeep);
+                    writer.write_ctrl_arg(instr.numKeep);
                     const anchor2 = writer.at;
                     writer.write_u32(0);
                     //synthetic branch depth
-                    writer.write_u32(0);
+                    writer.write_ctrl_arg(0);
                     writer.retroactive_write_u32(writer.at, anchor); //skip on fail
                     writer.write_u8(WASMOPCode.op_else);
-                    writer.write_u32(instr.numDrop);
+                    writer.write_ctrl_arg(instr.numDrop);
                     writeInstrNodes(writer, instr.child2, blockPtrStack, funcPtrArr);
                     writer.write_u8(WASMOPCode.op_end);
                     writer.retroactive_write_u32(writer.at, anchor2); //skip fail clause on success
@@ -81,7 +81,7 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_loop: {
                 //go back to before the loop instruction, to refresh the block
                 const anchor = writer.at - 1;
-                writer.write_u32(instr.numDrop);
+                writer.write_ctrl_arg(instr.numDrop);
                 blockPtrStack.push([]);
                 writeInstrNodes(writer, instr.child, blockPtrStack, funcPtrArr);
                 const toWrite = blockPtrStack.pop();
@@ -95,34 +95,34 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
             case WASMOPCode.op_br_if:
             case WASMOPCode.op_br: {
                 //[br] [numKeep] [ptr] [depth]
-                writer.write_u32(instr.numKeep);
-                const depth : number = instr.immediates[0].u32;
+                writer.write_ctrl_arg(instr.numKeep);
+                const depth = instr.immediates[0].u32;
                 if (depth >= blockPtrStack.length) 
                     throw new RangeError(`Branch depth ${depth} OOB, max is ${blockPtrStack.length - 1}`);
                 blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
-                writer.write_u32(0); //temporarily write 0
-                writer.write_u32(depth);
+                writer.write_u32(0); //temporarily write 0 for ptr
+                writer.write_ctrl_arg(depth);
                 break;
             }
             case WASMOPCode.op_br_table: {
                 //[br_table] [numKeep] [length] ([ptr] [depth])* [ptr] [length]
-                writer.write_u32(instr.numKeep);
-                writer.write_u32(instr.immediates[0].u32); //number of non-defaults
+                writer.write_ctrl_arg(instr.numKeep);
+                writer.write_ctrl_arg(instr.immediates[0].u32); //number of non-defaults
                 for (let i = 0; i < instr.immediates[0].u32 + 1; i++) {
                     const immediate = instr.immediates[i + 1];
-                    const depth : number = immediate.u32;
+                    const depth = immediate.u32;
                     if (depth >= blockPtrStack.length) 
                         throw new RangeError(`Branch depth ${depth} OOB, max is ${blockPtrStack.length - 1}`);
                     blockPtrStack[blockPtrStack.length - depth - 1].push(writer.at);
-                    writer.write_u32(0); //temporarily write 0
-                    writer.write_u32(depth);
+                    writer.write_u32(0); //temporarily write 0 for ptr
+                    writer.write_ctrl_arg(depth);
                 }
                 break;
             }
             case WASMOPCode.op_call: {
                 //funcidx
                 //write down the funcptr once this all works
-                writer.write_u32(instr.immediates[0].u32);
+                writer.write_ctrl_arg(instr.immediates[0].u32);
                 break;
             }
             case WASMOPCode.op_call_indirect: {
@@ -151,11 +151,11 @@ function writeInstrNodes(writer : FixedLengthWriter, instrs : Array<InstrNode>, 
                 break;
             case WASMOPCode.op_local_get: case WASMOPCode.op_local_set: case WASMOPCode.op_local_tee:
             case WASMOPCode.op_global_get: case WASMOPCode.op_global_set:
-                writer.write_u32(instr.immediates[0].u32);
+                writer.write_ctrl_arg(instr.immediates[0].u32);
                 break;
             case WASMOPCode.op_return:
-                writer.write_u32(instr.immediates[0].u32);
-                writer.write_u32(instr.numKeep);
+                writer.write_ctrl_arg(instr.immediates[0].u32);
+                writer.write_ctrl_arg(instr.numKeep);
                 break;
             default:
                 break;
@@ -174,10 +174,10 @@ export function convertToExecForm(repr : WASMRepr) : Uint8Array {
             writer.retroactive_write_u32(writer.at, i * 4);
             //write [#args] [#locals] [code]
             const funcSig = repr.section1.content[repr.section3.content[i].index];
-            writer.write_u32(funcSig.args.length);
+            writer.write_ctrl_arg(funcSig.args.length);
             let localCount = 0;
             for (const localChunk of code.locals) localCount += localChunk.count;
-            writer.write_u32(localCount);
+            writer.write_ctrl_arg(localCount);
             writeInstrNodes(writer, code.code, [], []);
             writer.write_u8(WASMOPCode.op_return); //force a return statement
             writer.write_u32(0); //synthetic 0 consumption
