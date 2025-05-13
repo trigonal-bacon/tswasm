@@ -21,6 +21,8 @@ import {
 import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length, newValue } from "./Alloc";
 import { LinkError, RuntimeError } from "../spec/Error";
 
+
+const CALL_STACK_LIMIT = 300;
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
 function makeExportFunction(prog : Program, index : number) : (...args: Array<any>) => number | bigint | undefined {
@@ -80,8 +82,8 @@ function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
 }
 
 function popSafe(arr : Array<WASMValue>) : WASMValue {
-    if (arr.length === 0) 
-        throw new RuntimeError("Stack empty, cannot pop");
+    //if (arr.length === 0) 
+        //throw new RuntimeError("Stack empty, cannot pop");
     const v = arr[arr.length - 1];
     --arr.length;
     return v;
@@ -438,6 +440,8 @@ export class Program {
                         }
                         break;
                     }
+                    if (callStack.length >= CALL_STACK_LIMIT)
+                        throw new RuntimeError(`Maximum call stack size of ${CALL_STACK_LIMIT} exceeded`);
                     const frame = new StackFrame(locals, reader.at, entry);
                     callStack.push(frame);
                     entry = funcIdx;
