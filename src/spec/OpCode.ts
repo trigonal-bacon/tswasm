@@ -190,10 +190,10 @@ export enum WASMOPCode {
     op_memory_fill = 0x0bfc,
 };
 
-class WASMOPDef {
-    args : Array<WASMValueType> = [];
-    ret : WASMValueType = WASMValueType.nil;
-    constructor(args : Array<WASMValueType>, ret : WASMValueType) {
+export class WASMOPDef {
+    args : Array<WASMValueType>;
+    ret : WASMValueType;
+    constructor(args : Array<WASMValueType> = [], ret : WASMValueType = WASMValueType.nil) {
         this.args = args;
         this.ret = ret;
     }

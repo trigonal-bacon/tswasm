@@ -1,14 +1,12 @@
 import { InstrNode } from "./Code";
+import { WASMOPDef } from "./OpCode";
 import { WASMValueType, WASMDeclType, WASMRefType, WASMGlobalType } from "./Types";
 
 export class WASMSection<SectionContent> {
     content : Array<SectionContent> = [];
 }
 
-export class WASMFuncType {
-    args : Array<WASMValueType> = [];
-    ret : WASMValueType = WASMValueType.nil;
-}
+export class WASMFuncType extends WASMOPDef {};
 
 export class WASMLimit {
     hasMax : boolean = false;

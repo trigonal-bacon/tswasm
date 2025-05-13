@@ -11,8 +11,7 @@ export function __debug_val_length() : number {
 export function cloneValue(v : WASMValue) : WASMValue {
     const ret = new WASMValue();
     ret.type = v.type;
-    ret.value = v.value;
-    ret.bigval = v.bigval;
+    ret.set(v);
     return ret;
 }
 

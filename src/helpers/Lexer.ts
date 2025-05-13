@@ -24,9 +24,8 @@ export class Reader {
     }
 
     read_uint8() : number {
-        if (this.at >= this.buf.length) {
-            throw new Error("Unexpected EOF");
-        }
+        if (this.at >= this.buf.length)
+            throw new Error("Unexpected EOF while reading u8");
         return this.buf[this.at++]; //guaranteed byte
     }
 
@@ -44,7 +43,8 @@ export class Reader {
         while (u8 & 0x80) {
             CONVERSION_UINT32[0] |= (u8 & 0x7F) << shift;
             shift += 7;
-            if (shift >= 32) break; //error;
+            if (shift >= 32)
+                throw new RangeError(`Malformed leb128 u32`);
             u8 = this.read_uint8();
         }
         CONVERSION_UINT32[0] |= (u8 << shift); //only get last 4 bits from 5th byte
@@ -58,7 +58,8 @@ export class Reader {
         while (u8 & 0x80) {
             CONVERSION_INT32[0] |= (u8 & 0x7F) << shift;
             shift += 7;
-            if (shift >= 32) break; //error;
+            if (shift >= 32) 
+                throw new RangeError(`Malformed leb128 i32`);
             u8 = this.read_uint8();
         }
         CONVERSION_INT32[0] |= (u8 << shift); //only get last 4 bits from 5th byte
@@ -73,7 +74,8 @@ export class Reader {
         while (u8 & BigInt(0x80)) {
             CONVERSION_UINT64[0] |= (u8 & BigInt(0x7F)) << shift; //no need to prevent underflow with bignums
             shift += BigInt(7);
-            if (shift >= BigInt(64)) break; //error;
+            if (shift >= BigInt(64))
+                throw new RangeError(`Malformed leb128 u64`);
             u8 = BigInt(this.read_uint8());
         }
         CONVERSION_UINT64[0] |= (u8 << shift); //only get last one bit from 10th byte
@@ -87,7 +89,8 @@ export class Reader {
         while (u8 & BigInt(0x80)) {
             CONVERSION_INT64[0] |= (u8 & BigInt(0x7F)) << shift; //no need to prevent underflow with bignums
             shift += BigInt(7);
-            if (shift >= BigInt(64)) break; //error;
+            if (shift >= BigInt(64)) 
+                throw new RangeError(`Malformed leb128 i64`);
             u8 = BigInt(this.read_uint8());
         }
         CONVERSION_INT64[0] |= (u8 << shift); //only get last one bit from 10th byte
@@ -96,20 +99,23 @@ export class Reader {
     }
 
     read_float32() : number {
-        if (this.at + 4 >= this.buf.length) return 0; //error
+        if (this.at + 4 >= this.buf.length)
+            throw new RangeError(`Unexpected EOF while reading f32`);
         CONVERSION_UINT8.set(this.buf.subarray(this.at, this.at += 4), 0);
         return CONVERSION_FLOAT32[0];
     }
 
     read_float64() : number {
-        if (this.at + 8 >= this.buf.length) return 0; //error
+        if (this.at + 8 >= this.buf.length)
+            throw new RangeError(`Unexpected EOF while reading f32`);
         CONVERSION_UINT8.set(this.buf.subarray(this.at, this.at += 8), 0);
         return CONVERSION_FLOAT64[0];
     }
 
     read_string() : string {
         const len = this.read_uint32();
-        if (this.at + len >= this.buf.length) return ""; //error
+        if (this.at + len >= this.buf.length) 
+            throw new RangeError(`Unexpected EOF while reading string of length ${len}`);
         const buf = TEXT_DECODER.decode(this.buf.slice(this.at, this.at += len));
         return buf;
     }
@@ -183,6 +189,7 @@ export class FixedLengthReader {
 
     read_u32() : number {
         for (let i = 0; i < 4; ++i) CONVERSION_UINT8[i] = this.read_u8();
+        //CONVERSION_UINT8.set(this.buf.subarray(this.at, this.at += 4), 0);
         return CONVERSION_UINT32[0];
     }
 

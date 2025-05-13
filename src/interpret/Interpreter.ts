@@ -21,6 +21,8 @@ import {
 import { newI32, newF32, newI64, newF64, freeVal, cloneValue, __debug_val_length, newValue } from "./Alloc";
 import { LinkError, RuntimeError } from "../spec/Error";
 
+
+const CALL_STACK_LIMIT = 300;
 //TODO: speed up with in-place allocation
 //TODO: speed up memory instructions
 function makeExportFunction(prog : Program, index : number) : (...args: Array<any>) => number | bigint | undefined {
@@ -71,8 +73,13 @@ function branchUp(blockFrames : Array<number>, valueStack : Array<WASMValue>, de
         for (let i = 0; i < toKeep; ++i)
             valueStack[anchor + i] = valueStack[top + i];
     }
-    blockFrames.length -= depth + 1;
-    valueStack.length = (anchor + toKeep);
+    for (let i = 0; i < depth + 1; i++)
+        blockFrames.pop();
+    const rmv = valueStack.length - (anchor + toKeep);
+    for (let i = 0; i < rmv; ++i)
+        valueStack.pop();
+    //blockFrames.length -= depth + 1;
+    //valueStack.length = (anchor + toKeep);
 }
 
 function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
@@ -80,10 +87,10 @@ function pushSafe(arr : Array<WASMValue>, v : WASMValue) : void {
 }
 
 function popSafe(arr : Array<WASMValue>) : WASMValue {
-    if (arr.length === 0) 
-        throw new RuntimeError("Stack empty, cannot pop");
+    //if (arr.length === 0) 
+        //throw new RuntimeError("Stack empty, cannot pop");
     const v = arr[arr.length - 1];
-    --arr.length;
+    arr.pop();
     return v;
 }
 
@@ -150,7 +157,7 @@ export class Program {
                 //using passive tables
                 const offset = evalConstExpr(elem.offset).u32;
                 if (offset + elem.funcrefs.length > this.tables[0].length)
-                    throw new LinkError("Out of Bounds element initialization");
+                    throw new LinkError("Out of range element initialization");
                 for (let i = 0; i < elem.funcrefs.length; ++i) {
                     const table = this.tables[0];
                     table.elements[i + offset] = elem.funcrefs[i];
@@ -163,7 +170,7 @@ export class Program {
             for (const data of repr.section11.content) {
                 const offset = evalConstExpr(data.offset).u32;
                 if (offset + data.data.length > this.memory.length)
-                    throw new LinkError("Out of bounds data initialization");
+                    throw new LinkError("Out of range data initialization");
                 this.memory._buffer.set(data.data, offset);
             }
         }
@@ -318,7 +325,7 @@ export class Program {
             locals[i] = args[i];
         }
         for (let i = 0; i < localC; ++i) 
-            locals[argC + i] = new WASMValue(); //error typecheck, won't matter
+            locals[argC + i] = newValue(); //error typecheck, won't matter
         while (true) {
             const instr = reader.read_instr();
             switch (instr) {
@@ -410,7 +417,7 @@ export class Program {
                         if (this.tables.length === 0)
                             throw new RuntimeError(`No table to index into for call_indirect`);
                         if (tableIdx < 0 || tableIdx >= this.tables[0].length)
-                            throw new RuntimeError(`Table index ${tableIdx} out of bounds`);
+                            throw new RuntimeError(`Table index ${tableIdx} out of range`);
                         funcIdx = this.tables[0].elements[tableIdx];
                     }
                     if (funcIdx < this.importFuncCount) {
@@ -438,6 +445,8 @@ export class Program {
                         }
                         break;
                     }
+                    if (callStack.length >= CALL_STACK_LIMIT)
+                        throw new RuntimeError(`Maximum call stack size of ${CALL_STACK_LIMIT} exceeded`);
                     const frame = new StackFrame(locals, reader.at, entry);
                     callStack.push(frame);
                     entry = funcIdx;

@@ -3,7 +3,6 @@ import WASMRepr from "./Repr";
 
 export default class WASMModule extends WASMRepr {
     constructor(bin : ArrayBuffer) {
-        console.log(`New WASMModule created`);
         const start = performance.now();
         super();
         const buf = new Uint8Array(bin);
